@@ -86,4 +86,10 @@ public interface RegionServerServices extends OnlineRegions {
    * @return Return the FileSystem object used by the regionserver
    */
   public FileSystem getFileSystem();
+
+  /**
+   * @return the manager that keeps track of which tables should be archived and
+   *         where they should be archived
+   */
+  public HFileArchiveMonitor getHFileArchiveMonitor();
 }

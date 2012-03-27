@@ -1730,6 +1730,209 @@ public class HBaseAdmin implements Abortable, Closeable {
   }
 
   /**
+   * @return A new HFileArchiveManager
+   * @throws ZooKeeperConnectionException
+   * @throws IOException
+   */
+  private synchronized HFileArchiveManager createHFileArchiveManager()
+      throws ZooKeeperConnectionException, IOException {
+    return new HFileArchiveManager(this.getConnection(), this.conf);
+  }
+
+  /**
+   * Turn on backups for all HFiles for the given table.
+   * <p>
+   * All deleted hfiles are moved to the
+   * {@value HConstants#HFILE_ARCHIVE_DIRECTORY} directory under the table
+   * directory, rather than being deleted.
+   * <p>
+   * If backups are already enabled for this table, does nothing. <b>
+   * Synchronous operation.</b>
+   * <p>
+   * Assumes that offline/dead regionservers will get the update on start.
+   * <p>
+   * <b>WARNING: No guarantees are made if multiple clients simultaneously
+   * attempt to disable/enable hfile backup on the same table.</b>
+   * @param table name of the table to start backing up
+   * @throws IOException
+   */
+  public void enableHFileBackup(String table) throws IOException {
+    enableHFileBackup(table,
+        this.getConfiguration().get(HConstants.HFILE_ARCHIVE_DIRECTORY));
+  }
+
+  /**
+   * Turn on backups for all HFiles for the given table.
+   * <p>
+   * All deleted hfiles are moved to the specifed archive directory under the
+   * table directory, rather than being deleted.
+   * <p>
+   * If backups are already enabled for this table, does nothing. <b>
+   * Synchronous operation.</b>
+   * <p>
+   * Assumes that offline/dead regionservers will get the update on start.
+   * <p>
+   * <b>WARNING: No guarantees are made if multiple clients simultaneously
+   * attempt to disable/enable hfile backup on the same table.</b>
+   * @param table name of the table to start backing up
+   * @param archive directory to store the hfiles
+   * @throws IOException
+   */
+  public void enableHFileBackup(String table, String archive)
+      throws IOException {
+    enableHFileBackup(Bytes.toBytes(table), Bytes.toBytes(archive));
+  }
+
+  /**
+   * Turn on backups for all HFiles for the given table.
+   * <p>
+   * All deleted hfiles are moved to the
+   * {@value HConstants#DEFAULT_HFILE_ARCHIVE_DIRECTORY} directory under the
+   * table directory, rather than being deleted.
+   * <p>
+   * If backups are already enabled for this table, does nothing.
+   * <p>
+   * <b> Synchronous operation.</b>
+   * <p>
+   * Assumes that offline/dead regionservers will get the update on start.
+   * <p>
+   * <b>WARNING: No guarantees are made if multiple clients simultaneously
+   * attempt to disable/enable hfile backup on the same table.</b>
+   * @param table name of the table to start backing up
+   * @throws IOException
+   */
+  public void enableHFileBackup(final byte[] table) throws IOException {
+    enableHFileBackup(
+        table,
+        Bytes.toBytes(this.getConfiguration().get(
+            HConstants.HFILE_ARCHIVE_DIRECTORY,
+            HConstants.DEFAULT_HFILE_ARCHIVE_DIRECTORY)));
+  }
+
+  /**
+   * Enable HFile backups synchronously. Ensures that all regionservers hosting
+   * the table have recived the notification to start archiving hfiles. <b>
+   * Synchronous operation.</b>
+   * <p>
+   * Assumes that offline/dead regionservers will get the update on start.
+   * <p>
+   * <b>WARNING: No guarantees are made if multiple clients simultaneously
+   * attempt to disable/enable hfile backup on the same table.</b>
+   * @param tableName name of the table on which to start backing up hfiles
+   * @param archive name of the archive directory under which to store the
+   *          files.
+   * @throws IOException if the backup cannot be enabled
+   */
+  public void enableHFileBackup(final byte[] tableName, final byte[] archive)
+      throws IOException {
+    enableHFileBackupAsync(tableName, archive);
+
+    int tries = 0;
+    HFileArchiveManager manager = createHFileArchiveManager();
+    // while all the regions have yet to receive zk update and we are not done
+    // retrying and backing off
+    while (!allRegionsDoneBackup(manager.regionsBeingArchived(tableName),
+      getOnlineRegions(tableName)) && tries < this.numRetries) {
+      // Sleep while we wait for the RS to get updated
+      try {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Not all regions for table '" + Bytes.toString(tableName)
+              + "' have joined the backup. Waiting...");
+        }
+        Thread.sleep(getPauseTime(tries++));
+      } catch (InterruptedException e) {
+        throw new InterruptedIOException("Interrupted when backing up table "
+            + Bytes.toString(tableName));
+      }
+    }
+    LOG.debug("Done waiting for table: " + Bytes.toString(tableName)
+        + " to join archive.");
+    // if we couldn't get all regions we expect, bail out
+    if (tries >= this.numRetries) {
+      manager.disableHFileBackup(tableName);
+      throw new IOException("Failed to get all regions to join backup in " + tries
+          + " tries, for table:" + Bytes.toString(tableName));
+    }
+  }
+
+  /**
+   * Turn on backups for all HFiles for the given table.
+   * <p>
+   * All deleted hfiles are moved to the specifed archive directory under the
+   * table directory, rather than being deleted.
+   * <p>
+   * If backups are already enabled for this table, does nothing.
+   * @param table name of the table to start backing up
+   * @param archive directory to store the hfiles
+   * @throws IOException
+   */
+  public void enableHFileBackupAsync(final byte[] table, final byte[] archive)
+      throws IOException {
+    createHFileArchiveManager().enableHFileBackup(table, archive);
+  }
+
+  /**
+   * Disable hfile backups for the given table.
+   * <p>
+   * Previously backed up files are still retained (if present).
+   *
+   * @param table name of the table stop backing up
+   * @throws IOException
+   */
+  public void disableHFileBackup(String table) throws IOException {
+    disableHFileBackup(Bytes.toBytes(table));
+  }
+
+  /**
+   * Disable hfile backups for the given table.
+   * <p>
+   * Previously backed up files are still retained (if present).
+   * @param table name of the table stop backing up
+   * @throws IOException
+   */
+  public void disableHFileBackup(final byte[] table) throws IOException {
+    createHFileArchiveManager().disableHFileBackup(table);
+  }
+
+  /**
+   * Disable hfile backups for all tables.
+   * <p>
+   * Previously backed up files are still retained (if present).
+   */
+  public void disableHFileBackup() throws IOException {
+    createHFileArchiveManager().disableHFileBackup(numRetries);
+  }
+
+  private boolean allRegionsDoneBackup(List<String> confirmedArchiving,
+      List<HRegionInfo> expected) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Expecting regions to archive hfiles:" + expected
+          + ", and currently have:" + confirmedArchiving);
+    }
+    // quick equals check
+    if (confirmedArchiving.size() != expected.size()) return false;
+
+    for (HRegionInfo info : expected) {
+      if (!confirmedArchiving.contains(info.getEncodedName())) return false;
+    }
+    return true;
+  }
+
+  private List<HRegionInfo> getOnlineRegions(byte[] tableName)
+      throws IOException {
+    List<HRegionInfo> onlineRegions = this.getTableRegions(tableName);
+    for (int i = 0; i < onlineRegions.size();) {
+      // if it is not online, then ignore it
+      if (onlineRegions.get(i).isOffline()) {
+        onlineRegions.remove(i);
+      }
+      // otherwise it is, so go to the next region
+      else i++;
+    }
+    return onlineRegions;
+  }
+
+  /**
    * @see {@link #execute}
    */
   private abstract static class MasterCallable<V> implements Callable<V>{

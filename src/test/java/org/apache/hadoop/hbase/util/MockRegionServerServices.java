@@ -31,11 +31,11 @@ import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.regionserver.CompactionRequestor;
 import org.apache.hadoop.hbase.regionserver.FlushRequester;
+import org.apache.hadoop.hbase.regionserver.HFileArchiveMonitor;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionServerAccounting;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.KeeperException;
 
@@ -155,5 +155,11 @@ public class MockRegionServerServices implements RegionServerServices {
 
   public void setFileSystem(FileSystem hfs) {
     this.hfs = (HFileSystem)hfs;
+  }
+
+  @Override
+  public HFileArchiveMonitor getHFileArchiveMonitor() {
+    // TODO Implement getHFileArchiveManager
+    return null;
   }
 }

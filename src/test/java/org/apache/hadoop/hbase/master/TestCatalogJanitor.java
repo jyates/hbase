@@ -19,6 +19,8 @@
  */
 package org.apache.hadoop.hbase.master;
 
+import static org.apache.hadoop.hbase.util.HFileArchiveTestingUtil.compareArchiveToOriginal;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -33,6 +35,8 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -58,9 +62,13 @@ import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.protobuf.ClientProtocol;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutateRequest;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutateResponse;
+import org.apache.hadoop.hbase.regionserver.HFileArchiveMonitor;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.hbase.util.Writables;
+import org.apache.hadoop.hbase.zookeeper.HFileArchiveTracker;
+import org.apache.hadoop.hbase.zookeeper.HFileArchiveTracker.HFileArchiveTableTracker;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -166,6 +174,10 @@ public class TestCatalogJanitor {
 
     MockMasterServices(final Server server) throws IOException {
       this.mfs = new MasterFileSystem(server, this, null);
+      // this is funky, but ensures that the filesystem gets the right root
+      // directory when directly accessed
+      this.mfs.getFileSystem().getConf()
+          .set(HConstants.HBASE_DIR, mfs.getRootDir().toString());
       this.asm = Mockito.mock(AssignmentManager.class);
     }
 
@@ -317,7 +329,9 @@ public class TestCatalogJanitor {
     Server server = new MockServer(htu);
     try {
       MasterServices services = new MockMasterServices(server);
-      CatalogJanitor janitor = new CatalogJanitor(server, services);
+      ZooKeeperWatcher watcher = Mockito.mock(ZooKeeperWatcher.class);
+      HFileArchiveMonitor monitor = new HFileArchiveTracker(watcher);
+      CatalogJanitor janitor = new CatalogJanitor(server, services, monitor);
       // Create regions.
       HTableDescriptor htd = new HTableDescriptor("table");
       htd.addFamily(new HColumnDescriptor("f"));
@@ -384,6 +398,173 @@ public class TestCatalogJanitor {
       "testLastParentCleanedEvenIfDaughterGoneFirst", new byte[0]);
   }
 
+  @Test
+  public void testArchiveOldRegion() throws Exception {
+    String table = "table";
+    String archive = ".archive";
+    HBaseTestingUtility htu = new HBaseTestingUtility();
+    setRootDirAndCleanIt(htu, "testCleanParent");
+    Server server = new MockServer(htu);
+    try {
+      MasterServices services = new MockMasterServices(server);
+      // add the test table as the one to be archived
+      ZooKeeperWatcher watcher = Mockito.mock(ZooKeeperWatcher.class);
+      HFileArchiveTracker manager = new HFileArchiveTracker(watcher);
+
+      // create the janitor
+      CatalogJanitor janitor = new CatalogJanitor(server, services, manager);
+
+      // Create regions.
+      HTableDescriptor htd = new HTableDescriptor(table);
+      htd.addFamily(new HColumnDescriptor("f"));
+      HRegionInfo parent = new HRegionInfo(htd.getName(), Bytes.toBytes("aaa"),
+          Bytes.toBytes("eee"));
+      HRegionInfo splita = new HRegionInfo(htd.getName(), Bytes.toBytes("aaa"),
+          Bytes.toBytes("ccc"));
+      HRegionInfo splitb = new HRegionInfo(htd.getName(), Bytes.toBytes("ccc"),
+          Bytes.toBytes("eee"));
+      // Test that when both daughter regions are in place, that we do not
+      // remove the parent.
+      List<KeyValue> kvs = new ArrayList<KeyValue>();
+      kvs.add(new KeyValue(parent.getRegionName(), HConstants.CATALOG_FAMILY,
+          HConstants.SPLITA_QUALIFIER, Writables.getBytes(splita)));
+      kvs.add(new KeyValue(parent.getRegionName(), HConstants.CATALOG_FAMILY,
+          HConstants.SPLITB_QUALIFIER, Writables.getBytes(splitb)));
+      Result r = new Result(kvs);
+
+      Path rootdir = services.getMasterFileSystem().getRootDir();
+      Path tabledir = HTableDescriptor.getTableDir(rootdir, htd.getName());
+      Path storedir = Store.getStoreHomedir(tabledir, parent.getEncodedName(),
+        htd.getColumnFamilies()[0].getName());
+
+      // first do a delete without archiving
+      addMockStoreFiles(2, services, storedir);
+      assertTrue(janitor.cleanParent(parent, r));
+
+      // and make sure that no files are archived
+      // add the table to the manager so we can get the archive dir (also
+      // enables future archiving)
+      manager.getTracker().addTable(table, archive);
+      FileSystem fs = services.getMasterFileSystem().getFileSystem();
+      Path storeArchive = HFileArchiveUtil
+          .getStoreArchivePath(manager, tabledir, parent.getEncodedName(),
+            htd.getColumnFamilies()[0].getName());
+      assertEquals(0, fs.listStatus(storeArchive).length);
+
+      // enable archiving, make sure that files get archived
+      manager.getTracker().addTable(table, archive);
+      addMockStoreFiles(2, services, storedir);
+      // get the current store files for comparison
+      FileStatus[] storeFiles = fs.listStatus(storedir);
+
+      // do the cleaning of the parent
+      assertTrue(janitor.cleanParent(parent, r));
+
+      // and now check to make sure that the files have actually been archived
+      FileStatus[] archivedStoreFiles = fs.listStatus(storeArchive);
+      compareArchiveToOriginal(storeFiles, archivedStoreFiles, fs);
+    } finally {
+      server.stop("shutdown");
+    }
+  }
+
+  /**
+   * Test that if a store file with the same name is present as those already
+   * backed up cause the already archived files to be timestamped backup
+   */
+  @Test
+  public void testDuplicateHFileResolution() throws Exception {
+    String table = "table";
+    String archive = ".archive";
+    HBaseTestingUtility htu = new HBaseTestingUtility();
+    setRootDirAndCleanIt(htu, "testCleanParent");
+    Server server = new MockServer(htu);
+    try {
+      MasterServices services = new MockMasterServices(server);
+      // add the test table as the one to be archived
+      ZooKeeperWatcher watcher = Mockito.mock(ZooKeeperWatcher.class);
+      HFileArchiveTracker manager = new HFileArchiveTracker(watcher);
+      HFileArchiveTableTracker tracker = new HFileArchiveTableTracker();
+      tracker.addTable(table, archive);
+      manager.setTracker(tracker);
+
+      // create the janitor
+      CatalogJanitor janitor = new CatalogJanitor(server, services, manager);
+
+      // Create regions.
+      HTableDescriptor htd = new HTableDescriptor(table);
+      htd.addFamily(new HColumnDescriptor("f"));
+      HRegionInfo parent = new HRegionInfo(htd.getName(), Bytes.toBytes("aaa"),
+          Bytes.toBytes("eee"));
+      HRegionInfo splita = new HRegionInfo(htd.getName(), Bytes.toBytes("aaa"),
+          Bytes.toBytes("ccc"));
+      HRegionInfo splitb = new HRegionInfo(htd.getName(), Bytes.toBytes("ccc"),
+          Bytes.toBytes("eee"));
+      // Test that when both daughter regions are in place, that we do not
+      // remove the parent.
+      List<KeyValue> kvs = new ArrayList<KeyValue>();
+      kvs.add(new KeyValue(parent.getRegionName(), HConstants.CATALOG_FAMILY,
+          HConstants.SPLITA_QUALIFIER, Writables.getBytes(splita)));
+      kvs.add(new KeyValue(parent.getRegionName(), HConstants.CATALOG_FAMILY,
+          HConstants.SPLITB_QUALIFIER, Writables.getBytes(splitb)));
+      Result r = new Result(kvs);
+
+      Path rootdir = services.getMasterFileSystem().getRootDir();
+      Path tabledir = HTableDescriptor.getTableDir(rootdir, htd.getName());
+      Path storedir = Store.getStoreHomedir(tabledir, parent.getEncodedName(),
+        htd.getColumnFamilies()[0].getName());
+
+      FileSystem fs = services.getMasterFileSystem().getFileSystem();
+      Path storeArchive = HFileArchiveUtil
+          .getStoreArchivePath(manager, tabledir, parent.getEncodedName(),
+            htd.getColumnFamilies()[0].getName());
+
+      // enable archiving, make sure that files get archived
+      tracker.addTable(table, archive);
+      addMockStoreFiles(2, services, storedir);
+      // get the current store files for comparison
+      FileStatus[] storeFiles = fs.listStatus(storedir);
+
+      // do the cleaning of the parent
+      assertTrue(janitor.cleanParent(parent, r));
+
+      // and now check to make sure that the files have actually been archived
+      FileStatus[] archivedStoreFiles = fs.listStatus(storeArchive);
+      compareArchiveToOriginal(storeFiles, archivedStoreFiles, fs);
+
+      // now add store files with the same names as before to check backup
+      // enable archiving, make sure that files get archived
+      tracker.addTable(table, archive);
+      addMockStoreFiles(2, services, storedir);
+
+      // do the cleaning of the parent
+      assertTrue(janitor.cleanParent(parent, r));
+
+      // and now check to make sure that the files have actually been archived
+      archivedStoreFiles = fs.listStatus(storeArchive);
+      compareArchiveToOriginal(storeFiles, archivedStoreFiles, fs, true);
+    } finally {
+      server.stop("shutdown");
+    }
+  }
+
+  private void addMockStoreFiles(int count, MasterServices services,
+      Path storedir) throws IOException {
+    // get the existing store files
+    FileSystem fs = services.getMasterFileSystem().getFileSystem();
+    fs.mkdirs(storedir);
+    // create the store files in the parent
+    for (int i = 0; i < count; i++) {
+      Path storeFile = new Path(storedir, "_store" + i);
+      FSDataOutputStream dos = fs.create(storeFile, true);
+      dos.writeBytes("Some data: " + i);
+      dos.close();
+    }
+    // make sure the mock store files are there
+    FileStatus[] storeFiles = fs.listStatus(storedir);
+    assertEquals(count, storeFiles.length);
+  }
+
   /**
    * Make sure parent with specified end key gets cleaned up even if daughter is cleaned up before it.
    *
@@ -399,7 +580,9 @@ public class TestCatalogJanitor {
     setRootDirAndCleanIt(htu, rootDir);
     Server server = new MockServer(htu);
     MasterServices services = new MockMasterServices(server);
-    CatalogJanitor janitor = new CatalogJanitor(server, services);
+    ZooKeeperWatcher watcher = Mockito.mock(ZooKeeperWatcher.class);
+    HFileArchiveMonitor montior = new HFileArchiveTracker(watcher);
+    CatalogJanitor janitor = new CatalogJanitor(server, services, montior);
     final HTableDescriptor htd = createHTableDescriptor();
 
     // Create regions: aaa->{lastEndKey}, aaa->ccc, aaa->bbb, bbb->ccc, etc.

@@ -90,7 +90,6 @@ import org.apache.hadoop.hbase.master.handler.TableDeleteFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableEventHandler;
 import org.apache.hadoop.hbase.master.handler.TableModifyFamilyHandler;
 import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
-import org.apache.hadoop.hbase.master.RegionPlan;
 import org.apache.hadoop.hbase.monitoring.MemoryBoundedLogMessageBuffer;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
@@ -108,6 +107,7 @@ import org.apache.hadoop.hbase.util.VersionInfo;
 import org.apache.hadoop.hbase.zookeeper.ClusterId;
 import org.apache.hadoop.hbase.zookeeper.ClusterStatusTracker;
 import org.apache.hadoop.hbase.zookeeper.DrainingServerTracker;
+import org.apache.hadoop.hbase.zookeeper.HFileArchiveTracker;
 import org.apache.hadoop.hbase.zookeeper.RegionServerTracker;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
@@ -228,6 +228,8 @@ Server {
    * MX Bean for MasterInfo
    */
   private ObjectName mxBean = null;
+
+  private HFileArchiveTracker hfileArchiveMontior;
 
   /**
    * Initializes the HMaster. The steps are as follows:
@@ -444,6 +446,9 @@ Server {
     boolean wasUp = this.clusterStatusTracker.isClusterUp();
     if (!wasUp) this.clusterStatusTracker.setClusterUp();
 
+    this.hfileArchiveMontior = new HFileArchiveTracker(zooKeeper);
+    this.hfileArchiveMontior.start();
+
     LOG.info("Server active/primary master; " + this.serverName +
         ", sessionid=0x" +
         Long.toHexString(this.zooKeeper.getRecoverableZooKeeper().getSessionId()) +
@@ -600,7 +605,8 @@ Server {
     // been assigned.
     status.setStatus("Starting balancer and catalog janitor");
     this.balancerChore = getAndStartBalancerChore(this);
-    this.catalogJanitorChore = new CatalogJanitor(this, this);
+    this.catalogJanitorChore = new CatalogJanitor(this, this,
+        this.hfileArchiveMontior);
     Threads.setDaemonThreadRunning(catalogJanitorChore.getThread());
 
     registerMBean();

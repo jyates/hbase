@@ -74,6 +74,7 @@ import org.apache.hadoop.hbase.util.ClassSize;
 import org.apache.hadoop.hbase.util.CollectionBackedScanner;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.util.StringUtils;
 
 import com.google.common.base.Preconditions;
@@ -1567,10 +1568,14 @@ public class Store extends SchemaConfigured implements HeapSize {
 
       // Tell observers that list of StoreFiles has changed.
       notifyChangedReadersObservers();
-      // Finally, delete old store files.
-      for (StoreFile hsf: compactedFiles) {
-        hsf.deleteReader();
-      }
+
+      // let the archive util decide if we should archive or delete the files
+      RegionServerServices rss = this.region.getRegionServerServices();
+      HFileArchiveMonitor monitor = rss == null ? null : rss
+          .getHFileArchiveMonitor();
+
+      // remove the store files, either by backup or outright deletion
+      removeStoreFiles(monitor, compactedFiles);
     } catch (IOException e) {
       e = RemoteExceptionHandler.checkIOException(e);
       LOG.error("Failed replacing compacted files in " + this +
@@ -1592,6 +1597,93 @@ public class Store extends SchemaConfigured implements HeapSize {
       this.totalUncompressedBytes += r.getTotalUncompressedBytes();
     }
     return result;
+  }
+
+  /**
+   * Remove the HFiles from the region under the given table.
+   * <p>
+   * Either archives the HFiles if archiving is enabled or just deletes them
+   * from the FS.
+   * @param monitor monitor which tables should be archived or deleted
+   * @param compactedFiles the actual files to be deleted
+   * @throws IOException if the {@link FileSystem} level operations fail, but
+   *           not if files cannot be removed/archive properly.
+   */
+  void removeStoreFiles(HFileArchiveMonitor monitor,
+      Collection<StoreFile> compactedFiles) throws IOException {
+
+    HRegionInfo info = this.region.getRegionInfo();
+    String table = info.getTableNameAsString();
+
+    // check to make sure we should keep the files
+    // if so, we just delete the old files
+    if (monitor == null || !monitor.keepHFiles(table)) {
+      rawDeleteStoreFiles(compactedFiles);
+      return;
+    }
+
+    // otherwise, we attempt to archive the store files
+    Path storeArchiveDir = HFileArchiveUtil.getStoreArchivePath(monitor,
+      this.region.getTableDir(), info.getEncodedName(), this.family.getName());
+
+    // make sure we don't archive if we can't and that the archive dir exists
+    if (storeArchiveDir == null || !fs.mkdirs(storeArchiveDir)) {
+      LOG.warn("Could make archive directory (" + storeArchiveDir
+          + ") for store:" + this + ", deleting compacted files instead");
+      rawDeleteStoreFiles(compactedFiles);
+    }
+
+    // move each store file to the archive directory
+    List<StoreFile> failedStores = new ArrayList<StoreFile>();
+    String archiveStartTime = Long.toString(EnvironmentEdgeManager
+        .currentTimeMillis());
+    for (StoreFile file : compactedFiles) {
+      try {
+        if (!HFileArchiveUtil.resolveAndArchiveFile(fs, storeArchiveDir,
+          file.getPath(), archiveStartTime)) {
+          LOG.warn("Couldn't archive " + file + " into backup directory: "
+              + storeArchiveDir);
+          failedStores.add(file);
+        }
+      } catch (IOException e) {
+        LOG.warn("Couldn't archive " + file + " into backup directory: "
+            + storeArchiveDir, e);
+        failedStores.add(file);
+      }
+    }
+
+    // only fail after we have attempted to cleanup as many files as possible
+    try {
+      rawDeleteStoreFiles(failedStores);
+    } catch (IOException e) {
+      LOG.debug("Failed to delete store file(s) when archiving failed", e);
+    }
+  }
+
+  /**
+   * Just do a simple delete of the given store files
+   * <p>
+   * A best effort is made to delete each of the files, rather than bailing on
+   * the first failure
+   * @param compactedFiles store files to remove from the file system.
+   * @throws IOException if not all the files can be removed
+   */
+  private void rawDeleteStoreFiles(Collection<StoreFile> compactedFiles)
+      throws IOException {
+    boolean failure = false;
+    for (StoreFile hsf : compactedFiles) {
+      try {
+      LOG.debug("Deleting store file:" + hsf.getPath());
+      hsf.deleteReader();
+      } catch (IOException e) {
+        LOG.error("Failed to delete store file:" + hsf.getPath());
+        failure = true;
+      }
+    }
+    if (failure) {
+      throw new IOException(
+          "Failed to delete all store files. See log for failures.");
+    }
   }
 
   public ImmutableList<StoreFile> sortAndClone(List<StoreFile> storeFiles) {

@@ -233,7 +233,7 @@ public class SplitTransaction {
     this.fileSplitTimeout = testing ? this.fileSplitTimeout :
         server.getConfiguration().getLong("hbase.regionserver.fileSplitTimeout",
           this.fileSplitTimeout);
-
+    LOG.debug("Done with pre-split");
     // Set ephemeral SPLITTING znode up in zk.  Mocked servers sometimes don't
     // have zookeeper so don't do zk stuff if server or zookeeper is null
     if (server != null && server.getZooKeeper() != null) {
@@ -253,6 +253,7 @@ public class SplitTransaction {
     List<StoreFile> hstoreFilesToSplit = null;
     Exception exceptionToThrow = null;
     try{
+      LOG.debug("Finishing closing parent in split");
       hstoreFilesToSplit = this.parent.close(false);
     } catch (Exception e) {
       exceptionToThrow = e;
@@ -284,19 +285,20 @@ public class SplitTransaction {
     // splitStoreFiles creates daughter region dirs under the parent splits dir
     // Nothing to unroll here if failure -- clean up of CREATE_SPLIT_DIR will
     // clean this up.
+    LOG.debug("Splitting store files");
     splitStoreFiles(this.splitdir, hstoreFilesToSplit);
-
+    LOG.debug("Finishing splitting store files");
     // Log to the journal that we are creating region A, the first daughter
     // region.  We could fail halfway through.  If we do, we could have left
     // stuff in fs that needs cleanup -- a storefile or two.  Thats why we
     // add entry to journal BEFORE rather than AFTER the change.
     this.journal.add(JournalEntry.STARTED_REGION_A_CREATION);
     HRegion a = createDaughterRegion(this.hri_a, this.parent.rsServices);
-
+    LOG.debug("Created first daughter");
     // Ditto
     this.journal.add(JournalEntry.STARTED_REGION_B_CREATION);
     HRegion b = createDaughterRegion(this.hri_b, this.parent.rsServices);
-
+    LOG.debug("Created second daughter");
     // This is the point of no return.  Adding subsequent edits to .META. as we
     // do below when we do the daughter opens adding each to .META. can fail in
     // various interesting ways the most interesting of which is a timeout
@@ -319,6 +321,7 @@ public class SplitTransaction {
       MetaEditor.offlineParentInMeta(server.getCatalogTracker(),
         this.parent.getRegionInfo(), a.getRegionInfo(), b.getRegionInfo());
     }
+    LOG.debug("Finishing creating daughters in split");
     return new PairOfSameType<HRegion>(a, b);
   }
 
@@ -452,6 +455,7 @@ public class SplitTransaction {
     PairOfSameType<HRegion> regions = createDaughters(server, services);
     openDaughters(server, services, regions.getFirst(), regions.getSecond());
     transitionZKNode(server, regions.getFirst(), regions.getSecond());
+    LOG.debug("Finishing executing split");
     return regions;
   }
 

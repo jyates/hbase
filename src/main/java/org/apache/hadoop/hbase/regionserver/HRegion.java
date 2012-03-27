@@ -119,6 +119,7 @@ import org.apache.hadoop.hbase.util.ClassSize;
 import org.apache.hadoop.hbase.util.CompressionTest;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.hbase.util.HashedBytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Threads;
@@ -3819,27 +3820,154 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   /**
-   * Deletes all the files for a HRegion
+   * Removes all the files for a HRegion
    *
    * @param fs the file system object
-   * @param rootdir qualified path of HBase root directory
+   * @param manager manager for if the region should be archived or deleted
    * @param info HRegionInfo for region to be deleted
    * @throws IOException
    */
-  public static void deleteRegion(FileSystem fs, Path rootdir, HRegionInfo info)
-  throws IOException {
-    deleteRegion(fs, HRegion.getRegionDir(rootdir, info));
+  public static void deleteRegion(FileSystem fs, HFileArchiveMonitor manager,
+      HRegionInfo info) throws IOException {
+    Path rootDir = FSUtils.getRootDir(fs.getConf());
+    deleteRegion(fs, manager, rootDir,
+        HTableDescriptor.getTableDir(rootDir, info.getTableName()),
+        HRegion.getRegionDir(rootDir, info));
   }
 
-  private static void deleteRegion(FileSystem fs, Path regiondir)
-  throws IOException {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("DELETING region " + regiondir.toString());
-    }
-    if (!fs.delete(regiondir, true)) {
-      LOG.warn("Failed delete of " + regiondir);
-    }
+  private static void deleteRegion(FileSystem fs, RegionServerServices rss,
+      Path rootdir, Path table, Path regiondir) throws IOException {
+    HFileArchiveMonitor manager = rss == null ? null : rss
+        .getHFileArchiveMonitor();
+    deleteRegion(fs, manager, rootdir, table, regiondir);
   }
+
+
+  /**
+   * Remove an entire region from the table directory.
+   * <p>
+   * Either archives the region or outright deletes it, depending on if
+   * archiving if enabled.
+   * @param fs {@link FileSystem} from which to remove the region
+   * @param monitor Monitor for which tables should be archived or deleted
+   * @param rootdir {@link Path} to the root directory where hbase files are
+   *          stored (for building the archive path)
+   * @param table {@link Path} to where the table is being stored (for building
+   *          the archive path)
+   * @param regionDir {@link Path} to where a region is being stored (for
+   *          building the archive path)
+   * @return <tt>true</tt> if the region was sucessfully deleted. <tt>false</tt>
+   *         if the filesystem operations could not complete.
+   * @throws IOException if the request cannot be completed
+   */
+  private static boolean deleteRegion(FileSystem fs,
+      HFileArchiveMonitor monitor, Path rootdir, Path tableDir, Path regionDir)
+      throws IOException {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("REMOVING region " + regionDir.toString());
+    }
+    // check to make sure we don't keep files, in which case just delete them
+    String table = tableDir.getName();
+    if (monitor == null || !monitor.keepHFiles(table)) {
+      LOG.debug("Doing raw delete of hregion directory (" + regionDir + ") - no backup");
+      return rawDeleteRegion(fs, regionDir);
+    }
+
+    // otherwise, we archive the files
+    // make sure the regiondir lives under the tabledir
+    Preconditions.checkArgument(regionDir.toString().startsWith(
+      tableDir.toString()));
+
+    // get the directory to archive region files
+    Path regionArchiveDir = HFileArchiveUtil.getRegionArchiveDir(monitor,
+      tableDir, regionDir);
+    if (regionArchiveDir == null) {
+      LOG.warn("No archive directory could be found for the region:"
+          + regionDir + ", deleting instead");
+      return rawDeleteRegion(fs, regionDir);
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("ARCHIVING HFiles for region in table: " + table + " to "
+          + regionArchiveDir);
+    }
+
+    // get the path to each of the store directories
+    FileStatus[] stores = fs.listStatus(regionDir);
+    // if there are no stores, just remove the region
+    if (stores == null || stores.length == 0) {
+      LOG.debug("No stores present in region:" + regionDir.getName()
+          + " for table" + table + ", done archiving.");
+      return rawDeleteRegion(fs, regionDir);
+    }
+
+    // otherwise, we attempt to archive the store files
+    boolean failure = false;
+    for (FileStatus storeDir : stores) {
+      Path storeArchiveDir = new Path(regionArchiveDir, storeDir.getPath()
+          .getName());
+      if (!resolveAndArchive(fs, storeArchiveDir,
+        storeDir.getPath())) {
+        LOG.warn("Failed to archive all files in store directory: "
+            + storeDir.getPath());
+        failure = true;
+      }
+    }
+    return failure;
+  }
+
+  /**
+   * Resolve all the copies of files. Ensures that no two files will collide by
+   * moving existing archived files to a timestampted directory and the curent
+   * archive files to their place. Otherwise, just moves the files into the
+   * archive directory
+   * @param fs filesystem on which all the files live
+   * @param storeArchiveDirectory path to the archive of the store directory
+   *          (already exists)
+   * @param store path to the store directory
+   * @return <tt>true</tt> if all files are moved successfully, <tt>false</tt>
+   *         otherwise.
+   */
+  private static boolean resolveAndArchive(FileSystem fs,
+      Path storeArchiveDirectory, Path store) throws IOException {
+    FileStatus[] storeFiles = fs.listStatus(store);
+    // if there are no store files to move, we are done
+    if (storeFiles == null || storeFiles.length == 0) return true;
+
+    String archiveStartTime = Long.toString(EnvironmentEdgeManager
+        .currentTimeMillis());
+    boolean result = true;
+    for (FileStatus stat : storeFiles) {
+      Path file = stat.getPath();
+      // resolve copy over each of the files to be archived.
+      try {
+        if (!HFileArchiveUtil.resolveAndArchiveFile(fs, storeArchiveDirectory,
+          file, archiveStartTime)) {
+          result = false;
+          LOG.warn("Failed to archive file: " + file);
+        }
+      } catch (IOException e) {
+        result = false;
+        LOG.warn("Failed to archive file: " + file, e);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Without regard for backup, delete a region. Should be used with caution.
+   * @param regionDir {@link Path} to the region to be deleted.
+   * @throws IOException on filesystem operation failure
+   */
+  private static boolean rawDeleteRegion(FileSystem fs, Path regionDir)
+      throws IOException {
+    if (fs.delete(regionDir, true)) {
+      LOG.debug("Deleted all region files in: " + regionDir);
+      return true;
+    }
+    LOG.debug("Failed to delete region directory:" + regionDir);
+    return false;
+  }
+
 
   /**
    * Computes the Path of the HRegion
@@ -4040,8 +4168,13 @@ public class HRegion implements HeapSize { // , Writable{
       LOG.debug("Files for new region");
       listPaths(fs, dstRegion.getRegionDir());
     }
-    deleteRegion(fs, a.getRegionDir());
-    deleteRegion(fs, b.getRegionDir());
+
+    deleteRegion(fs, a.getRegionServerServices(),
+        FSUtils.getRootDir(a.getConf()),
+        a.getTableDir(), a.getRegionDir());
+    deleteRegion(fs, b.getRegionServerServices(),
+        FSUtils.getRootDir(b.getConf()),
+        a.getTableDir(), b.getRegionDir());
 
     LOG.info("merge completed. New region is " + dstRegion);
 

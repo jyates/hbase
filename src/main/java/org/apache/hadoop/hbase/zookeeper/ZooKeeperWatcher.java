@@ -102,6 +102,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
   public String clusterIdZNode;
   // znode used for log splitting work assignment
   public String splitLogZNode;
+  // znode to track archiving hfiles
+  public String archiveHFileZNode;
 
   // Certain ZooKeeper nodes need to be world-readable
   public static final ArrayList<ACL> CREATOR_ALL_AND_WORLD_READABLE =
@@ -212,6 +214,9 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
         conf.get("zookeeper.znode.clusterId", "hbaseid"));
     splitLogZNode = ZKUtil.joinZNode(baseZNode,
         conf.get("zookeeper.znode.splitlog", HConstants.SPLIT_LOGDIR_NAME));
+    archiveHFileZNode = ZKUtil
+        .joinZNode(baseZNode, conf.get("zookeeper.znode.hfile.archive",
+            HConstants.HFILE_ARCHIVE_ZNODE_PARENT));
   }
 
   /**

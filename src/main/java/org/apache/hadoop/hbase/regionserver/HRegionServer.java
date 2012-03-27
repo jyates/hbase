@@ -144,7 +144,9 @@ import org.apache.hadoop.hbase.util.Strings;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.util.VersionInfo;
 import org.apache.hadoop.hbase.zookeeper.ClusterStatusTracker;
+import org.apache.hadoop.hbase.zookeeper.HFileArchiveTracker;
 import org.apache.hadoop.hbase.zookeeper.MasterAddressTracker;
+import org.apache.hadoop.hbase.zookeeper.RegionServerHFileArchiveTracker;
 import org.apache.hadoop.hbase.zookeeper.RootRegionTracker;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperNodeTracker;
@@ -311,6 +313,9 @@ public class HRegionServer extends RegionServer
    * MX Bean for RegionServerInfo
    */
   private ObjectName mxBean = null;
+
+  /** Store file archiving management */
+  HFileArchiveTracker hfileArchiveTracker;
 
   /**
    * Starts a HRegionServer at the default location
@@ -533,7 +538,8 @@ public class HRegionServer extends RegionServer
    * @throws IOException
    * @throws InterruptedException
    */
-  private void initializeZooKeeper() throws IOException, InterruptedException {
+  private void initializeZooKeeper() throws IOException, InterruptedException,
+      KeeperException {
     // Open connection to zookeeper and set primary watcher
     this.zooKeeper = new ZooKeeperWatcher(conf, REGIONSERVER + ":" +
       this.isa.getPort(), this);
@@ -555,6 +561,9 @@ public class HRegionServer extends RegionServer
     this.catalogTracker = new CatalogTracker(this.zooKeeper, this.conf,
       this, this.conf.getInt("hbase.regionserver.catalog.timeout", Integer.MAX_VALUE));
     catalogTracker.start();
+
+    this.hfileArchiveTracker = new RegionServerHFileArchiveTracker(zooKeeper, this);
+    this.hfileArchiveTracker.start();
   }
 
   /**
@@ -3217,6 +3226,11 @@ public class HRegionServer extends RegionServer
 
   public ExecutorService getExecutorService() {
     return service;
+  }
+
+  @Override
+  public HFileArchiveMonitor getHFileArchiveMonitor() {
+    return this.hfileArchiveTracker;
   }
 
   //

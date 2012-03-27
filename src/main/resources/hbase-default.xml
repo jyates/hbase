@@ -859,7 +859,6 @@
       files when hbase.data.umask.enable is true
     </description>
   </property>
-
   <property>
     <name>hbase.metrics.showTableName</name>
     <value>true</value>
@@ -869,5 +868,12 @@
 	In both cases, the aggregated metric M across tables and cfs will be reported.
     </description>
   </property>
-
+  <property>
+    <name>hbase.table.archive.directory</name>
+    <value>.archive</value>
+    <description>Per-table directory name under which to backup files for a
+      table. Files are moved to the same directories as they would be under the
+      table directory, but instead are just one level lower (under
+      table/.archive/... rather than table/...). Currently only applies to HFiles.</description>
+  </property>
 </configuration>
