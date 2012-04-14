@@ -1017,13 +1017,8 @@ public class ZKUtil {
       // the node is already deleted, so we just finish
       if (children == null) return;
 
-      if(!children.isEmpty()) {
-        for(String child : children) {
-          deleteNodeRecursively(zkw, joinZNode(node, child));
-        }
-      }
-      zkw.getRecoverableZooKeeper().delete(node, -1);
-    } catch(InterruptedException ie) {
+      zkw.getRecoverableZooKeeper().deleteRecursively(node, -1);
+    } catch (InterruptedException ie) {
       zkw.interruptedException(ie);
     }
   }
