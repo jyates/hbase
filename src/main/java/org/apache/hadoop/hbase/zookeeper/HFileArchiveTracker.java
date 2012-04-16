@@ -128,37 +128,36 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
     }
   }
 
-  // @Override
-  // public void nodeChildrenChanged(String path) {
-  // // if the archive node children changed, then we read out the new children
-  // if (path.startsWith(watcher.archiveHFileZNode)) {
-  // LOG.debug("Archive node: " + path + " children changed.");
-  // LOG.error("This shouldn't be called anymroe..., but not doing anything about it");
-  //
-  // // try {
-  // // updateWatchedTables();
-  // // } catch (KeeperException e) {
-  // // LOG.warn("Could not update which tables to archive", e);
-  // // }
-  // }
-  // }
+  @Override
+  public void nodeChildrenChanged(String path) {
+    // if the archive node children changed, then we read out the new children
+    if (path.startsWith(watcher.archiveHFileZNode)) {
+      LOG.debug("Archive node: " + path + " children changed.");
+      LOG.error("This shouldn't be called anymroe..., but not doing anything about it");
+
+      // try {
+      // updateWatchedTables();
+      // } catch (KeeperException e) {
+      // LOG.warn("Could not update which tables to archive", e);
+      // }
+    }
+  }
 
   /**
    * Sets the watch on the top-level archive znode, and then updates the montior
    * with the current tables that should be archived (and ensures that those
    * nodes are watched as well).
    */
-  @SuppressWarnings("synthetic-access")
   private void checkEnabledAndUpdate() {
     try {
       if (ZKUtil.watchAndCheckExists(watcher, watcher.archiveHFileZNode)) {
-        LOG.debug(watcher.archiveHFileZNode + "znode does exist, checking for tables to archive");
+        LOG.debug(watcher.archiveHFileZNode + " znode does exist, checking for tables to archive");
 
         // lazy load the tracker only if we are doing archiving
         if(tracker == null){
           synchronized(this){
             if (tracker == null) {
-              this.tracker = new HFileArchiveTableTracker();
+              this.tracker = getTracker();
             }
           }
         }
@@ -230,7 +229,7 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
   /**
    * Set the table tracker for the overall archive tracker.
    * <p>
-   * Exposed for testing
+   * Exposed for TESTING!
    * @param tracker tracker for which tables should be archived.
    */
   public void setTracker(HFileArchiveTableTracker tracker) {

@@ -4169,12 +4169,12 @@ public class HRegion implements HeapSize { // , Writable{
       listPaths(fs, dstRegion.getRegionDir());
     }
 
-    deleteRegion(fs, a.getRegionServerServices(),
-        FSUtils.getRootDir(a.getConf()),
-        a.getTableDir(), a.getRegionDir());
-    deleteRegion(fs, b.getRegionServerServices(),
-        FSUtils.getRootDir(b.getConf()),
-        a.getTableDir(), b.getRegionDir());
+    // delete out the 'A' region
+    deleteRegion(fs, a.getRegionServerServices(), FSUtils.getRootDir(a.getBaseConf()),
+      a.getTableDir(), a.getRegionDir());
+    // delete out the 'B' region
+    deleteRegion(fs, b.getRegionServerServices(), FSUtils.getRootDir(b.getBaseConf()),
+      b.getTableDir(), b.getRegionDir());
 
     LOG.info("merge completed. New region is " + dstRegion);
 

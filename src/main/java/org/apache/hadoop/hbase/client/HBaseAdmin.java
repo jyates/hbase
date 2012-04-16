@@ -1900,7 +1900,7 @@ public class HBaseAdmin implements Abortable, Closeable {
    * Previously backed up files are still retained (if present).
    */
   public void disableHFileBackup() throws IOException {
-    createHFileArchiveManager().disableHFileBackup(numRetries);
+    createHFileArchiveManager().disableHFileBackup();
   }
 
   private boolean allRegionsDoneBackup(List<String> confirmedArchiving,

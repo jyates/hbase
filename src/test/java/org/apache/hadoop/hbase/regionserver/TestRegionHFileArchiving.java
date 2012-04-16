@@ -99,9 +99,9 @@ public class TestRegionHFileArchiving {
   @AfterClass
   public static void cleanupTest() throws Exception {
     try {
-      UTIL.isRunningCluster();
-    } catch (IOException e) {
       UTIL.shutdownMiniCluster();
+    } catch (Exception e) {
+      // NOOP;
     }
   }
 
@@ -141,9 +141,9 @@ public class TestRegionHFileArchiving {
           + org.apache.zookeeper.ZKUtil.listSubTreeBFS(zk.getRecoverableZooKeeper().getZooKeeper(),
             zk.archiveHFileZNode), getArchivingEnabled(zk, TABLE_NAME));
 
-    // 0.a make sure that overally backup also disables per-table
+    // make sure that overal backup also disables per-table
     manager.enableHFileBackup(TABLE_NAME, Bytes.toBytes(".archive"));
-    manager.disableHFileBackup(5);
+    manager.disableHFileBackup();
     assertFalse(getArchivingEnabled(zk, TABLE_NAME));
   }
 

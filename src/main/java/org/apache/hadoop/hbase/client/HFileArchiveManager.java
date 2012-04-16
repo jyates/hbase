@@ -84,30 +84,16 @@ public class HFileArchiveManager {
 
   /**
    * Disable backups on all tables in the cluster
-   * @param maxTries max number of times to attempt to contact zk
    * @throws IOException if the number of attempts is exceeded
    */
-  public void disableHFileBackup(int maxTries) throws IOException {
+  public void disableHFileBackup() throws IOException {
     LOG.debug("Disabling backups on all tables.");
-    int tries = 0;
-    // TODO cleanup when we start use ZK's new atomic transaction utility
-    while (tries++ < maxTries) {
-      try {
-        ZKUtil.deleteNodeRecursively(this.zooKeeper, this.zooKeeper.archiveHFileZNode);
-        return;
-      } catch (KeeperException.NoNodeException e) {
-        LOG.debug("HFile backup already disabled, not doing anything");
-      } catch (KeeperException.NotEmptyException e) {
-        LOG.info("Attempted to delete backup znode (" + zooKeeper.archiveHFileZNode
-            + "), but another node joined while deleting. Attempting again.");
-        // ensure we have the most update-to-date view
-        zooKeeper.sync(this.zooKeeper.archiveHFileZNode);
-      } catch (KeeperException e) {
-        LOG.warn("Unexpected keeper exception, trying again.", e);
-      }
+    try {
+      ZKUtil.deleteNodeRecursively(this.zooKeeper, this.zooKeeper.archiveHFileZNode);
+      return;
+    } catch (KeeperException e) {
+      throw new IOException("Unexpected ZK exception!", e);
     }
-    throw new IOException("Exceeded max retries (" + maxTries + ") for deleting archive znode ("
-        + zooKeeper.archiveHFileZNode + "), failing!");
   }
 
   /**
