@@ -37,6 +37,7 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
@@ -74,12 +75,11 @@ public class TestRegionHFileArchiving {
 
   private static final Log LOG = LogFactory.getLog(TestRegionHFileArchiving.class);
   private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
-  HTable table;
-  HTableDescriptor desc;
   private static final String STRING_TABLE_NAME = "test";
   private static final byte[] TEST_FAM = Bytes.toBytes("fam");
   private static final byte[] TABLE_NAME = Bytes.toBytes(STRING_TABLE_NAME);
   private static final int numRS = 2;
+  private static final int maxTries = 10;
 
   /**
    * Setup the config for the cluster
@@ -96,7 +96,15 @@ public class TestRegionHFileArchiving {
     // set client side buffer to be 2000 bytes
     // conf.setInt("hbase.client.write.buffer", 2000);
     // set the memstore flush size to 2000 bytes
-    conf.setInt("hbase.hregion.memstore.flush.size", 50000);
+    // each loadRegion is 421,000 bytes, meaning we get 16 store files
+    conf.setInt("hbase.hregion.memstore.flush.size", 25000);
+    // so make sure we get a compaction when doing a load, but keep around some
+    // files in the store
+    conf.setInt("hbase.hstore.compaction.min", 10);
+    conf.setInt("hbase.hstore.compactionThreshold", 10);
+    // block writes if we get to 12 store files (ensures we get compactions at
+    // the expected times)
+    conf.setInt("hbase.hstore.blockingStoreFiles", 12);
     // check memstore size frequently (100ms)
     // conf.setInt("hbase.server.thread.wakefrequency", 100);
     // drop the number of attempts for the hbase admin
@@ -131,26 +139,63 @@ public class TestRegionHFileArchiving {
   }
 
   @Test
-  public void testSimpleEnableDisableArchiving() throws Exception {
-    // 0. Make sure archiving is not enabled
+  public void testEnableDisableArchiving() throws Exception {
+    // Make sure archiving is not enabled
     ZooKeeperWatcher zk = UTIL.getZooKeeperWatcher();
     assertFalse(getArchivingEnabled(zk, TABLE_NAME));
 
-    HFileArchiveManager manager = new HFileArchiveManager(zk);
-    manager.enableHFileBackup(TABLE_NAME, Bytes.toBytes(".archive"));
+    // get the RS and region serving our table
+    HBaseAdmin admin = UTIL.getHBaseAdmin();
+    List<HRegion> servingRegions = UTIL.getHBaseCluster().getRegions(TABLE_NAME);
+    // make sure we only have 1 region serving this table
+    assertEquals(1, servingRegions.size());
+    HRegion region = servingRegions.get(0);
+    HRegionServer hrs = UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+    FileSystem fs = hrs.getFileSystem();
 
+    // enable archiving
+    admin.enableHFileBackup(TABLE_NAME, Bytes.toBytes(".archive"));
     assertTrue(getArchivingEnabled(zk, TABLE_NAME));
 
-    manager.disableHFileBackup(TABLE_NAME);
+    // put some load on the table and make sure that files do get archived
+    loadAndCompact(region);
 
-    assertFalse(
-      "Not empty, children of archive:"
-          + org.apache.zookeeper.ZKUtil.listSubTreeBFS(zk.getRecoverableZooKeeper().getZooKeeper(),
-            zk.archiveHFileZNode), getArchivingEnabled(zk, TABLE_NAME));
+    // check that we actually have some store files
+    // make sure we don't have any extra archive files from random compactions
+    HFileArchiveMonitor monitor = hrs.getHFileArchiveMonitor();
+    Store store = region.getStore(TEST_FAM);
+    Path storeArchiveDir = HFileArchiveUtil.getStoreArchivePath(monitor, region.getTableDir(),
+      region.getRegionInfo().getEncodedName(), store.getFamily().getName());
+    assertTrue(fs.exists(storeArchiveDir));
+    assertTrue(fs.listStatus(storeArchiveDir).length > 0);
 
-    // make sure that overal backup also disables per-table
-    manager.enableHFileBackup(TABLE_NAME, Bytes.toBytes(".archive"));
-    manager.disableHFileBackup();
+    // now test that we properly stop backing up
+    LOG.debug("Stopping backup and testing that we don't archive");
+    admin.disableHFileBackup(STRING_TABLE_NAME);
+    int counter = 0;
+    while (monitor.keepHFiles(STRING_TABLE_NAME)) {
+      LOG.debug("Waiting for archive change to propaate");
+      Thread.sleep(500);
+      // max of 10 tries to propagate - if not, something is probably horribly
+      // wrong with zk/notification
+      assertTrue(counter++ < maxTries);
+    }
+
+    // delete the existing archive files
+    fs.delete(storeArchiveDir, true);
+
+    // and then put some more data in the table and ensure it compacts
+    loadAndCompact(region);
+
+    // put data into the table again to make sure that we don't copy new files
+    // over into the archive directory
+
+    // ensure there are no archived files
+    assertFalse(fs.exists(storeArchiveDir));
+
+    // make sure that overall backup also disables per-table
+    admin.enableHFileBackup(TABLE_NAME, Bytes.toBytes(".archive"));
+    admin.disableHFileBackup();
     assertFalse(getArchivingEnabled(zk, TABLE_NAME));
   }
 
@@ -173,16 +218,17 @@ public class TestRegionHFileArchiving {
   }
 
   /**
-   * In an earlier version, it was possible to turn on archiving but have the
-   * tracker miss the update to the table via incorrect ZK watches. This ensures
-   * that doesn't happen again.
+   * Ensure that archiving won't be turned on but have the tracker miss the
+   * update to the table via incorrect ZK watches (especially because
+   * createWithParents is not transactional).
    * @throws Exception
    */
   @Test
   public void testFindsTablesAfterArchivingEnabled() throws Exception {
     // 1. create a tracker to track the nodes
     ZooKeeperWatcher zkw = UTIL.getZooKeeperWatcher();
-    HFileArchiveTracker tracker = new HFileArchiveTracker(zkw);
+    HRegionServer hrs = UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+    HFileArchiveTracker tracker = hrs.hfileArchiveTracker;
 
     // 2. create the archiving enabled znode
     ZKUtil.createAndFailSilent(zkw, zkw.archiveHFileZNode);
@@ -193,39 +239,6 @@ public class TestRegionHFileArchiving {
 
     // 4. make sure that archiving is enabled for that tracker
     assertEquals(".archive", tracker.getBackupDirectory(STRING_TABLE_NAME));
-  }
-
-  @Test
-  public void testIterativeCreate() throws Exception {
-    ZKUtil.createWithParents(UTIL.getZooKeeperWatcher(), "/path/to/thing");
-    List<String> parents = new ArrayList<String>();
-    String path = "/path/to/thing";
-    addParents(path, parents);
-    ZooKeeper zk = UTIL.getZooKeeperWatcher().getRecoverableZooKeeper().getZooKeeper();
-    Transaction trans = zk.transaction();
-    String node = "/";
-    for(String parent: parents){
-      node = ZKUtil.joinZNode(node, parent);
-      trans.create(node, new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-    }
-    // then do the transaction
-    try {
-      List<OpResult> results = trans.commit();
-    } catch (KeeperException e) {
-      e.printStackTrace();
-      throw e;
-    }
-
-  }
-
-  private void addParents(String path, List<String> parents) {
-    String parent = ZKUtil.getParent(path);
-    // if not at the root, go up a level and add those parents
-    if (parent != null) {
-      addParents(parent, parents);
-    }
-    // add yourself to the list of parents
-    parents.add(ZKUtil.getNodeName(path));
   }
 
   /**
@@ -251,7 +264,7 @@ public class TestRegionHFileArchiving {
       // make sure that at least regions hosting the table have received the
       // update to start archiving
       if (hrs.getOnlineRegions(TABLE_NAME).size() > 0) {
-      assertTrue(hrs.getHFileArchiveMonitor().keepHFiles(STRING_TABLE_NAME));
+        assertTrue(hrs.getHFileArchiveMonitor().keepHFiles(STRING_TABLE_NAME));
       }
     }
 
@@ -326,40 +339,51 @@ public class TestRegionHFileArchiving {
     // make sure that archiving is in a 'clean' state
     assertNull(fs.listStatus(storeArchiveDir));
 
-    // get the original store files before compaction
-    LOG.debug("------Original store files:");
-    FileStatus[] originals = fs.listStatus(store.getHomedir());
-    for (FileStatus f : originals) {
-      LOG.debug("\t" + f.getPath());
-    }
+    // make sure we block the store from compacting/flushing files in the middle
+    // of our
+    // copy of the store files
+    List<StoreFile> origFiles;
+    FileStatus[] originals;
+    List<Path> copiedStores;
+    synchronized (store.filesCompacting) {
+      synchronized (store.flushLock) {
+        LOG.debug("Locked the store");
+        // get the original store files before compaction
+        LOG.debug("------Original store files:");
+        originals = fs.listStatus(store.getHomedir());
+        for (FileStatus f : originals) {
+          LOG.debug("\t" + f.getPath());
+        }
+        // copy the original store files so we can use them for testing
+        // overwriting
+        // store files with the same name below
+        origFiles = store.getStorefiles();
+        copiedStores = new ArrayList<Path>(origFiles.size());
+        Path temproot = new Path(hrs.getRootDir(), "store_copy");
+        for (StoreFile f : origFiles) {
+          if (!fs.exists(f.getPath())) continue;
 
-    // copy the original store files so we can use them for testing overwriting
-    // store files with the same name below
-    List<StoreFile> origFiles = store.getStorefiles();
-    List<Path> copiedStores = new ArrayList<Path>(origFiles.size());
-    Path temproot = new Path(hrs.getRootDir(), "store_copy");
-    for (StoreFile f : origFiles) {
-      if (!fs.exists(f.getPath())) continue;
-
-      Path tmpStore = new Path(temproot, f.getPath().getName());
-      FSDataOutputStream tmpOutput = fs.create(tmpStore);
-      FSDataInputStream storeInput = fs.open(f.getPath());
-      while (storeInput.available() > 0) {
-        byte[] remaining = new byte[1024];
-        storeInput.read(remaining);
-        tmpOutput.write(remaining);
+          Path tmpStore = new Path(temproot, f.getPath().getName());
+          FSDataOutputStream tmpOutput = fs.create(tmpStore);
+          FSDataInputStream storeInput = fs.open(f.getPath());
+          while (storeInput.available() > 0) {
+            byte[] remaining = new byte[1024];
+            storeInput.read(remaining);
+            tmpOutput.write(remaining);
+          }
+          tmpOutput.close();
+          storeInput.close();
+          copiedStores.add(tmpStore);
+        }
       }
-      tmpOutput.close();
-      storeInput.close();
-      copiedStores.add(tmpStore);
-    }
-
+    }// finish being synchronized, so we can do a compaction
+    LOG.debug("Unlocked the store");
     // and then trigger a compaction to combine the files again
     LOG.debug("---------- Triggering compaction");
     compactRegion(region, TEST_FAM);
 
     // then get the archived store files
-    LOG.debug("----------Store files after compaction:");
+    LOG.debug("----------Archived store files after compaction:");
     FileStatus[] archivedFiles = fs.listStatus(storeArchiveDir);
     for (FileStatus f : archivedFiles) {
       LOG.debug("\t" + f.getPath());
@@ -374,65 +398,37 @@ public class TestRegionHFileArchiving {
 
     // first delete out the existing files
     LOG.debug("Deleting out existing store files, and moving in our copies.");
-    fs.delete(store.getHomedir(), true);
 
-    // and copy back in the existing files
-    fs.mkdirs(store.getHomedir());
-    for (int i = 0; i < copiedStores.size(); i++) {
-      fs.rename(copiedStores.get(i), origFiles.get(i).getPath());
+    // lock again so we don't interfere with a compaction/flush
+    synchronized (store.filesCompacting) {
+      synchronized (store.flushLock) {
+        LOG.debug("Locked the store");
+        // delete the store directory (just in case)
+        fs.delete(store.getHomedir(), true);
+
+        // and copy back in the original store files (from before)
+        fs.mkdirs(store.getHomedir());
+        for (int i = 0; i < copiedStores.size(); i++) {
+          fs.rename(copiedStores.get(i), origFiles.get(i).getPath());
+        }
+
+        // now archive the files again
+        LOG.debug("Removing the store files again.");
+        store.removeStoreFiles(hrs.getHFileArchiveMonitor(), origFiles);
+
+        // ensure the files match to originals, but with a backup directory
+        LOG.debug("Checking originals vs. backed up (from archived) versions");
+        archivedFiles = fs.listStatus(storeArchiveDir);
+        compareArchiveToOriginal(originals, archivedFiles, fs, true);
+
+      }
     }
-
-    // now archive the files again
-    LOG.debug("Removing the store files again.");
-    store.removeStoreFiles(hrs.getHFileArchiveMonitor(), origFiles);
-
-    // ensure the files match to originals, but with a backup directory
-    LOG.debug("Checking originals vs. backed up (from archived) versions");
-    archivedFiles = fs.listStatus(storeArchiveDir);
-    compareArchiveToOriginal(originals, archivedFiles, fs, true);
-
-    // 4. now test that we properly stop backing up
-
-    // disable the archiving and wait for it to take
-    admin.disableHFileBackup();
-    while (monitor.keepHFiles(STRING_TABLE_NAME)) {
-      LOG.debug("Waiting for archive change to propaate");
-      Thread.sleep(500);
-      // do a re-read of zk to ensure the change propagated
-      hrs.hfileArchiveTracker.start();
-    }
-
-    // ensure that the changes have propagated
-    LOG.debug("Stopping backup and testing that we don't archive");
-    // artificially build the table archive directory and ensure that it got
-    // deleted.
-    Path tableArchive = new Path(new Path(region.getTableDir().getParent(), ".archive"), region
-        .getTableDir().getName());// HFileArchiveUtil.getTableArchivePath(monitor,
-                                  // region.tableDir);
-    Path otherARchived = HFileArchiveUtil.getTableArchivePath(monitor, region.tableDir);
-    assertFalse(fs.exists(tableArchive));
-    // clean out the existing backup
-
-    // if(ta)
-    // assertTrue(fs.delete(tableArchive, true));
-    
-    
-    // put data into the table again to make sure that we don't copy new files
-    // over into the archive directory
-    UTIL.loadRegion(region, TEST_FAM);
-
-    // and then trigger a compaction to be sure we try to archive
-    compactRegion(region, TEST_FAM);
-
-    // ensure there are no archived files
-    archivedFiles = fs.listStatus(storeArchiveDir);
-    assertNull(archivedFiles);
+    LOG.debug("Unlocked the store");
   }
 
-  @Ignore("Testing for borked test")
+  // @Ignore("Testing for borked test")
   @Test
   public void testRegionSplitAndArchive() throws Exception {
-    int splitRegionCount = 2; // total number of RS (post-split meta and root)
     HBaseAdmin admin = UTIL.getHBaseAdmin();
 
     // start archiving
@@ -455,46 +451,75 @@ public class TestRegionHFileArchiving {
     // prep the store files so we get some files
     LOG.debug("Loading store files");
     // prepStoreFiles(admin, store, 3);
-    UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
+    UTIL.loadRegion(region, TEST_FAM);
 
     // get the files before compaction
     FileSystem fs = region.getRegionServerServices().getFileSystem();
     FileStatus[] originals = fs.listStatus(store.getHomedir());
 
+    //delete out the current archive files, just for ease of comparison
+    // and synchronize to make sure we don't clobber another compaction
+    HFileArchiveMonitor monitor = hrs.getHFileArchiveMonitor();
+    Path storeArchiveDir = HFileArchiveUtil.getStoreArchivePath(monitor, region.getTableDir(),
+      region.getRegionInfo().getEncodedName(), store.getFamily().getName());
+
+    synchronized (region.writestate) {
+      // wait for all the compactions/flushes to complete on the region
+      LOG.debug("Waiting on region " + region + "to complete compactions & flushes");
+      region.waitForFlushesAndCompactions();
+      LOG.debug("Removing archived files - general cleanup");
+      assertTrue(fs.delete(storeArchiveDir, true));
+      assertTrue(fs.mkdirs(storeArchiveDir));
+    }
     LOG.debug("Starting split of region");
     // now split our region
-    admin.split(region.getRegionNameAsString());
-
-    while (UTIL.getHBaseCluster().getRegions(TABLE_NAME).size() < splitRegionCount) {
-      LOG.debug("Waiting on region to split");
+    admin.split(TABLE_NAME);
+    while (UTIL.getHBaseCluster().getRegions(TABLE_NAME).size() < 2) {
+      LOG.debug("Waiting for regions to split.");
       Thread.sleep(100);
     }
+    LOG.debug("Regions finished splitting.");
     // at this point the region should have split
     servingRegions = UTIL.getHBaseCluster().getRegions(TABLE_NAME);
-    // make sure we now have 2 regions serving this table (and 2 meta regions)
-    assertEquals(splitRegionCount, servingRegions.size());
+    // make sure we now have 2 regions serving this table
+    assertEquals(2, servingRegions.size());
 
-    // and then force a compaction of the regions and read out the new files
-    LOG.debug("Compacting all the stores for testing");
-    HFileArchiveMonitor monitor = hrs.getHFileArchiveMonitor();
-    List<FileStatus> archived = new ArrayList<FileStatus>();
-    for (HRegion r : hrs.getOnlineRegions(TABLE_NAME)) {
-      // do compaction
-      compactRegion(r, TEST_FAM);
-
-      // get the new files
-      Store s = r.getStore(TEST_FAM);
-      Path storeArchiveDir = HFileArchiveUtil.getStoreArchivePath(monitor, r.getTableDir(), r
-          .getRegionInfo().getEncodedName(), s.getFamily().getName());
-      for (FileStatus file : fs.listStatus(storeArchiveDir)) {
-        archived.add(file);
+    // now check to make sure that those daughter regions are part of the list
+    // of those regions archiving a table
+    HFileArchiveManager manager = new HFileArchiveManager(UTIL.getZooKeeperWatcher());
+    List<String> regions = manager.regionServersArchiving(TABLE_NAME);
+    for (HRegion r : servingRegions) {
+      if (!regions.contains(r.getRegionInfo().getEncodedName())) {
+        fail("Regions being archived doesn't include the daughter region:" + r);
       }
     }
-
-    // and check the archive files
-    compareArchiveToOriginal(originals, archived.toArray(new FileStatus[0]), fs);
   }
 
+  /**
+   * Load the given region and then ensure that it compacts some files
+   */
+  private void loadAndCompact(HRegion region) throws Exception {
+    int tries = 0;
+    Exception last = null;
+    while (tries++ <= maxTries) {
+      try {
+        // load the region with data
+        UTIL.loadRegion(region, TEST_FAM);
+        // and then trigger a compaction to be sure we try to archive
+        compactRegion(region, TEST_FAM);
+        return;
+      } catch (Exception e) {
+        // keep this around for if we fail later
+        last = e;
+      }
+    }
+    if (last != null) throw last;
+
+  }
+
+  /**
+   * Compact all the store files in a given region.
+   */
   private void compactRegion(HRegion region, byte[] family) throws IOException {
     Store store = region.getStores().get(TEST_FAM);
     store.compactRecentForTesting(store.getStorefiles().size());

@@ -68,7 +68,7 @@ public class HFileArchiveUtil {
     // timestamped backup
     if (fs.exists(archiveFile)) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("File:"+ archiveFile
+        LOG.debug("File:" + archiveFile
             + " already exists in archive, moving to timestamped backup and overwriting current.");
       }
       Path backupDir = new Path(storeArchiveDirectory, archiveStartTime);
@@ -104,10 +104,12 @@ public class HFileArchiveUtil {
             }
           }
         } else if (LOG.isDebugEnabled()) {
-          LOG.debug("Backed up archive file from: " + archiveFile + ", to: "
-              + backedupArchivedFile);
+          LOG.debug("Backed up archive file from: " + archiveFile + ", to: " + backedupArchivedFile);
         }
       }
+    } else if (LOG.isDebugEnabled()) {
+      LOG.debug("No existing file in archive for:" + archiveFile
+          + ", free to archive original file.");
     }
 
     // now that we have cleared out any existing archive file, move the
@@ -196,5 +198,15 @@ public class HFileArchiveUtil {
    */
   public static String getTableNode(ZooKeeperWatcher zkw, byte[] table) {
     return ZKUtil.joinZNode(zkw.archiveHFileZNode, Bytes.toString(table));
+  }
+
+  /**
+   * Get the zookeeper node associated with archiving the given table
+   * @param zkw watcher for the zk cluster
+   * @param table name of the table to check
+   * @return znode for the table's archive status
+   */
+  public static String getTableNode(ZooKeeperWatcher zkw, String table) {
+    return ZKUtil.joinZNode(zkw.archiveHFileZNode, table);
   }
 }

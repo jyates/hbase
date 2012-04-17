@@ -77,8 +77,15 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
   
   @Override
   public void nodeChildrenChanged(String path) {
-    LOG.debug("Received notification that the children changed for:" + path
-        + ", but not doing anything about it");
+    if (path.startsWith(watcher.archiveHFileZNode)) {
+      LOG.debug("Archive node: " + path + " children changed.");
+      // a table was added to the archive
+      try {
+        updateWatchedTables();
+      } catch (KeeperException e) {
+        LOG.error("Failed to update tables to archive", e);
+      }
+    }
   }
 
   /**
@@ -131,6 +138,11 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
         return;
       }
       // just stop archiving one table
+      // note that we don't attempt to add another watch for that table into zk.
+      // We have no assurances that the table will be archived again (or even
+      // exists for that matter), so its better not to add unnecessary load to
+      // zk for watches. If the table is created again, then we will get the
+      // notification in childrenChanaged.
       getTracker().removeTable(ZKUtil.getNodeName(path));
     }
   }
@@ -236,7 +248,7 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
    * It is internally synchronized to ensure consistent view of the table state
    */
   public static class HFileArchiveTableTracker implements HFileArchiveMonitor {
-    private final Map<String, String> tableArchiveMap = new HashMap<String, String>();
+    protected final Map<String, String> tableArchiveMap = new HashMap<String, String>();
 
     // TODO move this from a map to just a list and a single lookup for the
     // config value - archive directory is set per-cluster

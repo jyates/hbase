@@ -17,14 +17,9 @@
  */
 package org.apache.hadoop.hbase.zookeeper;
 
-import java.io.IOException;
-import java.util.List;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.zookeeper.KeeperException;
 
@@ -65,38 +60,20 @@ public class RegionServerHFileArchiveTracker extends HFileArchiveTracker {
     @Override
     public synchronized void addTable(String table, String archive) {
       LOG.debug("Adding table '" + table + "' to be archived");
+      if (this.tableArchiveMap.containsKey(table)) {
+        LOG.debug("Already archiving table: " + table + ", ignoring it");
+        return;
+      }
       // first add the table to the parent
       super.addTable(table, archive);
-      // and now notify that we are archiving the table for all regions
-      byte[] tableName = Bytes.toBytes(table);
-      List<HRegion> regions;
+      // notify that we are archiving the table for all regions in the RS
       try {
-        regions = parent.getOnlineRegions(tableName);
-        registerRegionsArchivingTable(regions, tableName);
-      } catch (IOException e) {
+        String tablenode = HFileArchiveUtil.getTableNode(watcher, table);
+        String rsNode = ZKUtil.joinZNode(tablenode, parent.getServerName().toString());
+        ZKUtil.createEphemeralNodeAndWatch(watcher, rsNode, new byte[0]);
+      } catch (KeeperException e) {
         LOG.error("Could not get online regions from parent, failing to notify that joining back of table:"
             + table);
-      }
-    }
-
-    /**
-     * Register the regions involved in the archiving at table
-     * @param regions
-     * @param table
-     */
-    private void registerRegionsArchivingTable(List<HRegion> regions, byte[] table) {
-      LOG.debug("Registering " + regions.size() + " regions are archiving: "
-          + Bytes.toString(table));
-      byte[] data = new byte[0];
-      String tablenode = HFileArchiveUtil.getTableNode(watcher, table);
-      for (HRegion region : regions) {
-        String regionNode = ZKUtil.joinZNode(tablenode, region.getRegionInfo().getEncodedName());
-        try {
-          ZKUtil.createNodeIfNotExistsAndWatch(watcher, regionNode, data);
-        } catch (KeeperException e) {
-          LOG.error("Failed to add region: " + region.getRegionNameAsString()
-              + " as archiving table.", e);
-        }
       }
     }
   }

@@ -23,6 +23,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
@@ -67,6 +68,8 @@ import org.apache.hadoop.hbase.util.Addressing;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
+import org.apache.hadoop.hbase.zookeeper.RootRegionTracker;
+import org.apache.hadoop.hbase.zookeeper.ZKTable;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
@@ -1842,28 +1845,46 @@ public class HBaseAdmin implements Abortable, Closeable {
 
     // while all the regions have yet to receive zk update and we are not done
     // retrying and backing off
-    while (!allRegionsDoneBackup(manager.regionsBeingArchived(tableName),
-      getOnlineRegions(tableName)) && tries < this.numRetries) {
-      // Sleep while we wait for the RS to get updated
-      try {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("try:" + tries + "/" + this.numRetries + ", Not all regions for table '"
-              + Bytes.toString(tableName)
-              + "' have joined the backup. Waiting...");
+    CatalogTracker ct = getCatalogTracker();
+    try {
+      List<Pair<HRegionInfo, ServerName>> regionAndLocations = MetaReader
+          .getTableRegionsAndLocations(ct, Bytes.toString(tableName));
+      
+      //now build list of the current RS
+      // List<String> serverNames = new ArrayList<String>();
+      // for(Pair<HRegionInfo, ServerName> rl: regionAndLocations){
+      // //if the region is assigned
+      // if(rl.getSecond() != null){
+      // serverNames.add(rl.)
+      // }
+      // }
+      
+      while (!allRegionServersBackingup(manager.regionServersArchiving(tableName),
+        getOnlineRegions(tableName)) && tries < this.numRetries) {
+        // Sleep while we wait for the RS to get updated
+        try {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("try:" + tries + "/" + this.numRetries + ", Not all regions for table '"
+                + Bytes.toString(tableName)
+                + "' have joined the backup. Waiting...");
+          }
+          Thread.sleep(getPauseTime(tries++));
+        } catch (InterruptedException e) {
+          throw new InterruptedIOException("Interrupted when backing up table "
+              + Bytes.toString(tableName));
         }
-        Thread.sleep(getPauseTime(tries++));
-      } catch (InterruptedException e) {
-        throw new InterruptedIOException("Interrupted when backing up table "
-            + Bytes.toString(tableName));
       }
-    }
-    LOG.debug("Done waiting for table: " + Bytes.toString(tableName)
-        + " to join archive.");
-    // if we couldn't get all regions we expect, bail out
-    if (tries >= this.numRetries) {
-      manager.disableHFileBackup(tableName);
-      throw new IOException("Failed to get all regions to join backup in " + tries
-          + " tries, for table:" + Bytes.toString(tableName));
+      LOG.debug("Done waiting for table: " + Bytes.toString(tableName)
+          + " to join archive.");
+      // if we couldn't get all regions we expect, bail out
+      if (tries >= this.numRetries) {
+        manager.disableHFileBackup(tableName);
+        throw new IOException("Failed to get all regions to join backup in " + tries
+            + " tries, for table:" + Bytes.toString(tableName));
+      }
+      
+    } catch (InterruptedException e1) {
+      throw new InterruptedIOException(e1.getMessage());
     }
   }
 
@@ -1915,7 +1936,7 @@ public class HBaseAdmin implements Abortable, Closeable {
     createHFileArchiveManager().disableHFileBackup();
   }
 
-  private boolean allRegionsDoneBackup(List<String> confirmedArchiving,
+  private boolean allRegionServersBackingup(List<String> confirmedArchiving,
       List<HRegionInfo> expected) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("Expecting regions to archive hfiles:" + expected

@@ -545,6 +545,7 @@ public class SplitTransaction {
    */
   private static void createSplitDir(final FileSystem fs, final Path splitdir)
   throws IOException {
+    LOG.debug("Creating the splitdir: " + splitdir + " if doesn't exist");
     if (fs.exists(splitdir)) {
       LOG.info("The " + splitdir
           + " directory exists.  Hence deleting it to recreate it");

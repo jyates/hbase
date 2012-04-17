@@ -96,36 +96,23 @@ public class HFileArchiveManager {
   }
 
   /**
-   * Get the current list of all the region names that are currently involved in
-   * archiving the table
+   * Get the current list of all the regionservers that are currently involved
+   * in archiving the table
    * @param table name of table under which to check for regions that are
    *          archiving.
    * @return the currently online regions that are archiving the table
    * @throws IOException if an unexpected connection issues occurs
    */
-  public List<String> regionsBeingArchived(byte[] table) throws IOException {
+  @SuppressWarnings("unchecked")
+  public List<String> regionServersArchiving(byte[] table) throws IOException {
     try {
-      return listRegionsArchivingTable(zooKeeper, table);
+      // build the table znode
+      String tableNode = getTableNode(zooKeeper, table);
+      List<String> regions = ZKUtil.listChildrenNoWatch(zooKeeper, tableNode);
+      return (List<String>) (regions == null ? Collections.emptyList() : regions);
     } catch (KeeperException e) {
       throw new IOException(e);
     }
-  }
-
-  /**
-   * Get the current list of all the region names that are currently involved in
-   * archiving a table
-   * @param zooKeeper watcher for the ZK cluster
-   * @param table name of the table to check for
-   * @return the currently online regions that are archiving the table
-   * @throws KeeperException if an unexpected ZK connection issues occurs
-   */
-  @SuppressWarnings("unchecked")
-  private List<String> listRegionsArchivingTable(ZooKeeperWatcher zooKeeper,
-      byte[] table) throws KeeperException {
-    // build the table znode
-    String tableNode = getTableNode(zooKeeper, table);
-    List<String> regions =  ZKUtil.listChildrenNoWatch(zooKeeper, tableNode);
-    return (List<String>) (regions == null ? Collections.emptyList() : regions);
   }
 
   /**

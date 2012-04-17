@@ -130,7 +130,7 @@ public class Store extends SchemaConfigured implements HeapSize {
   private final int blockingStoreFileCount;
   private volatile long storeSize = 0L;
   private volatile long totalUncompressedBytes = 0L;
-  private final Object flushLock = new Object();
+  final Object flushLock = new Object();
   final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
   private final boolean verifyBulkLoads;
 
@@ -1015,6 +1015,7 @@ public class Store extends SchemaConfigured implements HeapSize {
         this.compactor.compact(this, filesToCompact, cr.isMajor(), maxId);
       // Move the compaction into place.
       if (this.conf.getBoolean("hbase.hstore.compaction.complete", true)) {
+        LOG.debug("Completing compaction by moving files into place.");
         sf = completeCompaction(filesToCompact, writer);
         if (region.getCoprocessorHost() != null) {
           region.getCoprocessorHost().postCompact(this, sf);
@@ -1611,7 +1612,11 @@ public class Store extends SchemaConfigured implements HeapSize {
    */
   void removeStoreFiles(HFileArchiveMonitor monitor,
       Collection<StoreFile> compactedFiles) throws IOException {
-
+    LOG.debug("Removing store files after compaction...");
+    if(compactedFiles.size() == 0){
+      LOG.debug("No files in current compaction, done!");
+      return;
+    }
     HRegionInfo info = this.region.getRegionInfo();
     String table = info.getTableNameAsString();
 
@@ -1619,26 +1624,30 @@ public class Store extends SchemaConfigured implements HeapSize {
     // if so, we just delete the old files
     if (monitor == null || !monitor.keepHFiles(table)) {
       rawDeleteStoreFiles(compactedFiles);
+      LOG.debug("Deteled old (compacted) store files after compaction.");
       return;
     }
 
+    LOG.debug("Attempting to archive store files.");
     // otherwise, we attempt to archive the store files
     Path storeArchiveDir = HFileArchiveUtil.getStoreArchivePath(monitor,
       this.region.getTableDir(), info.getEncodedName(), this.family.getName());
 
     // make sure we don't archive if we can't and that the archive dir exists
     if (storeArchiveDir == null || !fs.mkdirs(storeArchiveDir)) {
-      LOG.warn("Could make archive directory (" + storeArchiveDir
-          + ") for store:" + this + ", deleting compacted files instead");
+      LOG.warn("Could make archive directory (" + storeArchiveDir + ") for store:" + this
+          + ", deleting compacted files instead.");
       rawDeleteStoreFiles(compactedFiles);
+      return;
     }
 
-    // move each store file to the archive directory
+    LOG.debug("moving store files to the archive directory: " + storeArchiveDir);
     List<StoreFile> failedStores = new ArrayList<StoreFile>();
     String archiveStartTime = Long.toString(EnvironmentEdgeManager
         .currentTimeMillis());
     for (StoreFile file : compactedFiles) {
       try {
+        LOG.debug("Archiving store file:" + file.getPath());
         if (!HFileArchiveUtil.resolveAndArchiveFile(fs, storeArchiveDir,
           file.getPath(), archiveStartTime)) {
           LOG.warn("Couldn't archive " + file + " into backup directory: "
@@ -1653,10 +1662,13 @@ public class Store extends SchemaConfigured implements HeapSize {
     }
 
     // only fail after we have attempted to cleanup as many files as possible
-    try {
-      rawDeleteStoreFiles(failedStores);
-    } catch (IOException e) {
-      LOG.debug("Failed to delete store file(s) when archiving failed", e);
+    if (failedStores.size() > 0) {
+      try {
+        LOG.warn("Failed to complete archive, so just deleting extra store files.");
+        rawDeleteStoreFiles(failedStores);
+      } catch (IOException e) {
+        LOG.debug("Failed to delete store file(s) when archiving failed", e);
+      }
     }
   }
 

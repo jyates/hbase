@@ -957,16 +957,7 @@ public class HRegion implements HeapSize { // , Writable{
       writestate.writesEnabled = false;
       wasFlushing = writestate.flushing;
       LOG.debug("Closing " + this + ": disabling compactions & flushes");
-      while (writestate.compacting > 0 || writestate.flushing) {
-        LOG.debug("waiting for " + writestate.compacting + " compactions" +
-            (writestate.flushing ? " & cache flush" : "") +
-            " to complete for region " + this);
-        try {
-          writestate.wait();
-        } catch (InterruptedException iex) {
-          // continue
-        }
-      }
+      waitForFlushesAndCompactions();
     }
     // If we were not just flushing, is it worth doing a preflush...one
     // that will clear out of the bulk of the memstore before we put up
@@ -1037,6 +1028,25 @@ public class HRegion implements HeapSize { // , Writable{
       return result;
     } finally {
       lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Wait for all current flushes and compactions of the region to complete.
+   * <p>
+   * VISBILE FOR TESTING
+   */
+  public void waitForFlushesAndCompactions() {
+    synchronized (writestate) {
+      while (writestate.compacting > 0 || writestate.flushing) {
+        LOG.debug("waiting for " + writestate.compacting + " compactions"
+            + (writestate.flushing ? " & cache flush" : "") + " to complete for region " + this);
+        try {
+          writestate.wait();
+        } catch (InterruptedException iex) {
+          // continue
+        }
+      }
     }
   }
 
