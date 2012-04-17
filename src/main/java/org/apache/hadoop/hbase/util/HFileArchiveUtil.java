@@ -135,6 +135,7 @@ public class HFileArchiveUtil {
       Path tabledir, String regionName, byte[] family) {
     // get the archive directory for a table
     Path archiveDir = getTableArchivePath(monitor, tabledir);
+    // null if
     if (archiveDir == null) return null;
 
     // and then the per-store archive directory comes from that (final
@@ -161,6 +162,15 @@ public class HFileArchiveUtil {
     return HRegion.getRegionDir(archiveDir, encodedRegionName);
   }
 
+  /**
+   * Get the path to the archive directory for a given table. Equivalent to the
+   * general 'table directory' (but in the archive).
+   * @param monitor Monitor to find whether a given table should be archived
+   * @param tabledir the original table directory
+   * @return the archive directory for the table, or <tt>null</tt> if no archive
+   *         folder is given for a table (backups probably not enabled for that
+   *         table).
+   */
   public static Path getTableArchivePath(HFileArchiveMonitor monitor,
       Path tabledir) {
     Preconditions.checkNotNull(monitor,

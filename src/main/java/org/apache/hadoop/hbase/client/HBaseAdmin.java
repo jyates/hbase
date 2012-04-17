@@ -1786,13 +1786,13 @@ public class HBaseAdmin implements Abortable, Closeable {
   /**
    * Turn on backups for all HFiles for the given table.
    * <p>
-   * All deleted hfiles are moved to the
-   * {@value HConstants#DEFAULT_HFILE_ARCHIVE_DIRECTORY} directory under the
-   * table directory, rather than being deleted.
+   * All deleted hfiles are moved to the value specified by
+   * {@link HConstants#HFILE_ARCHIVE_DIRECTORY} directory under the table
+   * directory, rather than being deleted.
    * <p>
    * If backups are already enabled for this table, does nothing.
    * <p>
-   * <b> Synchronous operation.</b>
+   * <b>Synchronous operation</b>
    * <p>
    * Assumes that offline/dead regionservers will get the update on start.
    * <p>
@@ -1825,10 +1825,21 @@ public class HBaseAdmin implements Abortable, Closeable {
    */
   public void enableHFileBackup(final byte[] tableName, final byte[] archive)
       throws IOException {
+    // this is a little inefficient since we do a read of meta to see if it
+    // exists, but is a lot cleaner than catching a NPE below when looking for
+    // online regions and the table doesn't exist.
+    if (!this.tableExists(tableName)) {
+      throw new IOException("Table: " + Bytes.toString(tableName)
+          + " does not exist, cannot create a backup for a non-existant table.");
+    }
+
+    // do the asynchronous update
     enableHFileBackupAsync(tableName, archive);
 
+    // and then wait for it to propagate
     int tries = 0;
     HFileArchiveManager manager = createHFileArchiveManager();
+
     // while all the regions have yet to receive zk update and we are not done
     // retrying and backing off
     while (!allRegionsDoneBackup(manager.regionsBeingArchived(tableName),
@@ -1836,7 +1847,8 @@ public class HBaseAdmin implements Abortable, Closeable {
       // Sleep while we wait for the RS to get updated
       try {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Not all regions for table '" + Bytes.toString(tableName)
+          LOG.debug("try:" + tries + "/" + this.numRetries + ", Not all regions for table '"
+              + Bytes.toString(tableName)
               + "' have joined the backup. Waiting...");
         }
         Thread.sleep(getPauseTime(tries++));

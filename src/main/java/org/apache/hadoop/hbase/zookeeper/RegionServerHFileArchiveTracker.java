@@ -19,7 +19,6 @@ package org.apache.hadoop.hbase.zookeeper;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -27,7 +26,6 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.HFileArchiveUtil;
-import org.apache.hadoop.hbase.util.Pair;
 import org.apache.zookeeper.KeeperException;
 
 /**
@@ -66,6 +64,7 @@ public class RegionServerHFileArchiveTracker extends HFileArchiveTracker {
      */
     @Override
     public synchronized void addTable(String table, String archive) {
+      LOG.debug("Adding table '" + table + "' to be archived");
       // first add the table to the parent
       super.addTable(table, archive);
       // and now notify that we are archiving the table for all regions
@@ -86,6 +85,8 @@ public class RegionServerHFileArchiveTracker extends HFileArchiveTracker {
      * @param table
      */
     private void registerRegionsArchivingTable(List<HRegion> regions, byte[] table) {
+      LOG.debug("Registering " + regions.size() + " regions are archiving: "
+          + Bytes.toString(table));
       byte[] data = new byte[0];
       String tablenode = HFileArchiveUtil.getTableNode(watcher, table);
       for (HRegion region : regions) {

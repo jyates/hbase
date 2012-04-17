@@ -31,7 +31,6 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooKeeperMain;
 
 /**
  * Client-side manager for which tables to archive
@@ -149,9 +148,6 @@ public class HFileArchiveManager {
 
     // then add the table to the list of znodes to archive
     String tableNode = getTableNode(zooKeeper, table);
-    // ensure the latest table node state is found
-    LOG.debug("Synching table node(" + tableNode + ") state");
-    zooKeeper.sync(tableNode);
     LOG.debug("Creating: " + tableNode + ", data:" + Bytes.toString(archive));
     ZKUtil.createSetData(zooKeeper, tableNode, archive);
   }
@@ -178,6 +174,7 @@ public class HFileArchiveManager {
     String tableNode = getTableNode(zooKeeper, table);
     // make sure the table is the latest version so the delete takes
     zooKeeper.sync(tableNode);
+    // LOG.debug("Attempting to delete:" + tableNode);
     ZKUtil.deleteNodeRecursively(zooKeeper, tableNode);
   }
 }

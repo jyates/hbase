@@ -75,6 +75,12 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
     }
   }
   
+  @Override
+  public void nodeChildrenChanged(String path) {
+    LOG.debug("Received notification that the children changed for:" + path
+        + ", but not doing anything about it");
+  }
+
   /**
    * Add this table to the tracker and then read a watch on that node.
    * <p>
@@ -86,7 +92,7 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
    */
   private void addAndReWatchTable(String tableZnode) throws KeeperException{
     // TODO remove the data get when we move to single archive location
-    tracker.addTable(ZKUtil.getNodeName(tableZnode),
+    getTracker().addTable(ZKUtil.getNodeName(tableZnode),
       Bytes.toString(ZKUtil.getDataNoWatch(watcher, tableZnode, null)));
     //re-add a watch to the table created
     //and check to make sure it wasn't deleted
@@ -101,7 +107,7 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
    * @throws KeeperException if an unexpected zk exception occurs
    */
   private void deleteAndCheckForCreateTable(String tableZnode) throws KeeperException {
-    tracker.removeTable(ZKUtil.getNodeName(tableZnode));
+    getTracker().removeTable(ZKUtil.getNodeName(tableZnode));
     // if the table exists, then add and rewatch it
     if (ZKUtil.checkExists(watcher, tableZnode) >= 0) {
       addAndReWatchTable(tableZnode);
@@ -116,6 +122,7 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
       // if we stop archiving all tables
       if (table.length() == 0) {
         // make sure we have the tracker before deleting the archive
+        // but if we don't, we don't care about delete
         if (tracker != null) tracker.clearArchive();
         // watches are one-time events, so we need to reup our subscription to
         // the archive node and might as well check to make sure archiving
@@ -124,22 +131,7 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
         return;
       }
       // just stop archiving one table
-      tracker.removeTable(ZKUtil.getNodeName(path));
-    }
-  }
-
-  @Override
-  public void nodeChildrenChanged(String path) {
-    // if the archive node children changed, then we read out the new children
-    if (path.startsWith(watcher.archiveHFileZNode)) {
-      LOG.debug("Archive node: " + path + " children changed.");
-      LOG.error("This shouldn't be called anymroe..., but not doing anything about it");
-
-      // try {
-      // updateWatchedTables();
-      // } catch (KeeperException e) {
-      // LOG.warn("Could not update which tables to archive", e);
-      // }
+      getTracker().removeTable(ZKUtil.getNodeName(path));
     }
   }
 
@@ -152,15 +144,6 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
     try {
       if (ZKUtil.watchAndCheckExists(watcher, watcher.archiveHFileZNode)) {
         LOG.debug(watcher.archiveHFileZNode + " znode does exist, checking for tables to archive");
-
-        // lazy load the tracker only if we are doing archiving
-        if(tracker == null){
-          synchronized(this){
-            if (tracker == null) {
-              this.tracker = getTracker();
-            }
-          }
-        }
 
         // update the tables we should backup, to get the most recent state.
         // This is safer than also watching for children and then hoping we get
@@ -182,38 +165,39 @@ public class HFileArchiveTracker extends ZooKeeperListener implements HFileArchi
     LOG.debug("Updating watches on tables to archive.");
     // get the children and add watches for each of the children
     List<String> tables = ZKUtil.listChildrenAndWatchThem(watcher, watcher.archiveHFileZNode);
-
     // if there are tables that should be archived
     if (tables != null && tables.size() > 0) {
+      LOG.debug("Found " + tables.size() + " table to archive");
       List<Pair<String, String>> tablesAndArchive = new ArrayList<Pair<String, String>>(
           tables.size());
       // iterate through the tables and get the archive directory we should use
       for (String table : tables) {
         String node = ZKUtil.joinZNode(watcher.archiveHFileZNode, table);
+        LOG.debug("Starting archive for table:" + table);
         tablesAndArchive.add(new Pair<String, String>(table, Bytes.toString(ZKUtil.getData(watcher,
           node))));
       }
-      tracker.setArchiveTables(tablesAndArchive);
+      getTracker().setArchiveTables(tablesAndArchive);
     } else {
       LOG.debug("No tables to archive.");
-      tracker.clearArchive();
+      getTracker().clearArchive();
     }
   }
 
   @Override
   public boolean keepHFiles(String tableName) {
-    return tracker.keepHFiles(tableName);
+    return getTracker().keepHFiles(tableName);
   }
 
   @Override
   public String getBackupDirectory(String tableName) {
-    return tracker.getBackupDirectory(tableName);
+    return getTracker().getBackupDirectory(tableName);
   }
 
   /**
    * @return the tracker for which tables should be archived.
    */
-  public HFileArchiveTableTracker getTracker() {
+  public final HFileArchiveTableTracker getTracker() {
     if(this.tracker == null)
     {
       synchronized (this) {

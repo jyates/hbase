@@ -35,6 +35,7 @@ import org.apache.hadoop.hbase.util.RetryCounterFactory;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Op;
 import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
