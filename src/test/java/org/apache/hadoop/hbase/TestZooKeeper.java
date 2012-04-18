@@ -23,11 +23,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -45,7 +48,10 @@ import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.OpResult;
+import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooKeeper.States;
 import org.junit.AfterClass;
@@ -360,6 +366,30 @@ public class TestZooKeeper {
     ZooKeeperWatcher zkw = new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),
         "testGetChildDataAndWatchForNewChildrenShouldNotThrowNPE", null);
     ZKUtil.getChildDataAndWatchForNewChildren(zkw, "/wrongNode");
+  }
+
+  @Test
+  public void testCreateWithParents() throws Exception {
+    // try a general create
+    ZKUtil.createWithParents(TEST_UTIL.getZooKeeperWatcher(), "/path/to/thing");
+    assertTrue(ZKUtil.checkExists(TEST_UTIL.getZooKeeperWatcher(), "/path/to/thing") > -1);
+    LOG.debug("Created '/path/to/thing'");
+
+    // then try creating a sibling
+    ZKUtil.createWithParents(TEST_UTIL.getZooKeeperWatcher(), "/path/to/other");
+    assertTrue(ZKUtil.checkExists(TEST_UTIL.getZooKeeperWatcher(), "/path/to/other") > -1);
+    LOG.debug("Created '/path/to/other'");
+
+    ZKUtil.createWithParents(TEST_UTIL.getZooKeeperWatcher(), "/");
+    LOG.debug("Created '/'");
+
+    // try a bad creation
+    try {
+      ZKUtil.createWithParents(TEST_UTIL.getZooKeeperWatcher(), "bad/node/creation");
+      fail("Attempted to create 'bad/node/creation', which is not a valid node");
+    } catch (IllegalArgumentException e) {
+      // NOOP, this is ok
+    }
   }
 
   @org.junit.Rule

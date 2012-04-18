@@ -26,7 +26,7 @@ import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Properties;
 
@@ -49,6 +49,8 @@ import org.apache.hadoop.hbase.util.Threads;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.KeeperException.BadArgumentsException;
+import org.apache.zookeeper.Op;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.KeeperException.NoNodeException;
@@ -937,22 +939,50 @@ public class ZKUtil {
    * @param znode path of node
    * @throws KeeperException if unexpected zookeeper exception
    */
-  public static void createWithParents(ZooKeeperWatcher zkw, String znode)
-  throws KeeperException {
+  public static void createWithParents(ZooKeeperWatcher zkw, String znode) throws KeeperException {
     try {
-      if(znode == null) {
+      if (znode == null) {
         return;
       }
       waitForZKConnectionIfAuthenticating(zkw);
       zkw.getRecoverableZooKeeper().create(znode, new byte[0], createACL(zkw, znode),
-          CreateMode.PERSISTENT);
-    } catch(KeeperException.NodeExistsException nee) {
+        CreateMode.PERSISTENT);
+    } catch (KeeperException.NodeExistsException nee) {
       return;
-    } catch(KeeperException.NoNodeException nne) {
-      createWithParents(zkw, getParent(znode));
-      createWithParents(zkw, znode);
-    } catch(InterruptedException ie) {
+    } catch (KeeperException.NoNodeException nne) {
+      LOG.debug("Failed to create:" + znode + ", attempting to create parents.");
+      // the parent doesn't exist, so create up the list
+      List<Op> treeCreation = new LinkedList<Op>();
+      // push on the leaf node to the creation stack
+      treeCreation.add(Op.create(znode, new byte[0], createACL(zkw, znode), CreateMode.PERSISTENT));
+      // try adding up the tree until we succeed or hit root
+      try {
+        transactionallyCreateWithParents(zkw, treeCreation, znode);
+      } catch (InterruptedException e) {
+        zkw.interruptedException(e);
+      } catch (KeeperException.NodeExistsException e) {
+        // one of the parent nodes exists, so just try doing it all again
+        createWithParents(zkw, znode);
+      }
+    } catch (InterruptedException ie) {
       zkw.interruptedException(ie);
+    }
+  }
+
+  private static void transactionallyCreateWithParents(ZooKeeperWatcher zkw, List<Op> parents,
+      String node) throws KeeperException, InterruptedException {
+    String parent = ZKUtil.getParent(node);
+    // if there aren't any more nodes, then throw an exception
+    if (parent == null) {
+      throw new KeeperException.BadArgumentsException(node);
+    }
+    LOG.debug("Attempting to create parent znode:" + parent + ", as well as all children.");
+    parents.add(0, Op.create(parent, new byte[0], createACL(zkw, parent), CreateMode.PERSISTENT));
+    try {
+      zkw.getRecoverableZooKeeper().transact(parents);
+    } catch (KeeperException.NoNodeException e) {
+      // one of the parent nodes doesn't, so try this again with the next parent
+      transactionallyCreateWithParents(zkw, parents, parent);
     }
   }
 

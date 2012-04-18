@@ -22,6 +22,7 @@ package org.apache.hadoop.hbase.zookeeper;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 
@@ -35,7 +36,9 @@ import org.apache.hadoop.hbase.util.RetryCounterFactory;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.Op;
+import org.apache.zookeeper.OpResult;
 import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
@@ -672,5 +675,42 @@ public class RecoverableZooKeeper {
       }
     }
     return lockChildren;
+  }
+
+  /**
+   * Run list of operations on ZooKeeper transactionally. Either all operations
+   * commit or none commit (in which case any applicable KeeperException will be
+   * thrown).
+   * @param ops {@link Op Ops} to apply to the zk server
+   * @return the results from the Ops, if successfull
+   * @throws KeeperException if one of the ops fails in an expected way (e.g.
+   *           create a node where the node already exists will throw a
+   *           {@link KeeperException.NodeExistsException}).
+   * @throws InterruptedException
+   */
+  public List<OpResult> transact(Iterable<Op> ops) throws KeeperException, InterruptedException {
+    RetryCounter retryCounter = retryCounterFactory.create();
+    while (true) {
+      try {
+        return zk.multi(ops);
+      } catch (KeeperException e) {
+        switch (e.code()) {
+          case CONNECTIONLOSS:
+          case SESSIONEXPIRED:
+          case OPERATIONTIMEOUT:
+            retryOrThrow(retryCounter, e, "transact");
+            break;
+
+          default:
+            throw e;
+        }
+      } catch (InterruptedException e) {
+        LOG.info("Recieved interrupted exception error, relaying as connection loss.", e);
+        retryOrThrow(retryCounter, KeeperException.create(Code.CONNECTIONLOSS, null), "transact");
+    }
+      retryCounter.sleepUntilNextRetry();
+      retryCounter.useRetry();
+    }
+
   }
 }
