@@ -58,7 +58,7 @@ public class HFileArchiveTableMonitor extends Configured implements HFileArchive
    * @param table name of the table to be registered
    */
   public synchronized void addTable(String table) {
-    if (this.archiveHFiles(table)) {
+    if (this.keepHFiles(table)) {
       LOG.debug("Already archiving table: " + table + ", ignoring it");
       return;
     }
@@ -96,7 +96,7 @@ public class HFileArchiveTableMonitor extends Configured implements HFileArchive
   }
 
   @Override
-  public synchronized boolean archiveHFiles(String tableName) {
+  public synchronized boolean keepHFiles(String tableName) {
     return archivedTables.contains(tableName);
   }
 }

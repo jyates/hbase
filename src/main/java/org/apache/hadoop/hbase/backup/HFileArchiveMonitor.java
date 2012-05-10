@@ -31,5 +31,5 @@ public interface HFileArchiveMonitor {
    * @return <tt>true</tt> if its store files should be retained, <tt>false</tt>
    *         otherwise
    */
-  public boolean archiveHFiles(String tableName);
+  public boolean keepHFiles(String tableName);
 }

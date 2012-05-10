@@ -39,7 +39,8 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.Server;
-import org.apache.hadoop.hbase.TableExistsException;
+import org.apache.hadoop.hbase.backup.HFileArchiveMonitor;
+import org.apache.hadoop.hbase.backup.RegionDisposer;
 import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.MetaReader;
 import org.apache.hadoop.hbase.client.Result;
@@ -51,7 +52,6 @@ import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
 
-
 /**
  * A janitor for the catalog tables.  Scans the <code>.META.</code> catalog
  * table on a period looking for unused regions to garbage collect.
@@ -61,14 +61,17 @@ class CatalogJanitor extends Chore {
   private static final Log LOG = LogFactory.getLog(CatalogJanitor.class.getName());
   private final Server server;
   private final MasterServices services;
+  private final HFileArchiveMonitor hfileArchiveMontior;
   private boolean enabled = true;
 
-  CatalogJanitor(final Server server, final MasterServices services) {
+  CatalogJanitor(final Server server, final MasterServices services,
+      HFileArchiveMonitor hfileArchiveManager) {
     super(server.getServerName() + "-CatalogJanitor",
       server.getConfiguration().getInt("hbase.catalogjanitor.interval", 300000),
       server);
     this.server = server;
     this.services = services;
+    this.hfileArchiveMontior = hfileArchiveManager;
   }
 
   @Override
@@ -214,7 +217,7 @@ class CatalogJanitor extends Chore {
     if (hasNoReferences(a) && hasNoReferences(b)) {
       LOG.debug("Deleting region " + parent.getRegionNameAsString() +
         " because daughter splits no longer hold references");
-	  // wipe out daughter references from parent region
+      // wipe out daughter references from parent region in meta
       removeDaughtersFromParent(parent);
 
       // This latter regionOffline should not be necessary but is done for now
@@ -225,8 +228,7 @@ class CatalogJanitor extends Chore {
         this.services.getAssignmentManager().regionOffline(parent);
       }
       FileSystem fs = this.services.getMasterFileSystem().getFileSystem();
-      Path rootdir = this.services.getMasterFileSystem().getRootDir();
-      HRegion.deleteRegion(fs, rootdir, parent);
+      RegionDisposer.deposeRegion(fs, hfileArchiveMontior, parent);
       MetaEditor.deleteRegion(this.server.getCatalogTracker(), parent);
       result = true;
     }
@@ -324,5 +326,13 @@ class CatalogJanitor extends Chore {
   private HTableDescriptor getTableDescriptor(byte[] tableName)
   throws FileNotFoundException, IOException {
     return this.services.getTableDescriptors().get(Bytes.toString(tableName));
+  }
+
+  /**
+   * Exposed for TESTING
+   * @return the current monitor for the files being managed
+   */
+  HFileArchiveMonitor getHfileArchiveMonitor() {
+    return hfileArchiveMontior;
   }
 }

@@ -244,7 +244,7 @@ public class RegionDisposer {
    */
   private static boolean shouldDeleteFiles(HFileArchiveMonitor monitor, Path tabledir) {
     if (monitor == null) return true;
-    return !monitor.archiveHFiles(tabledir.getName());
+    return !monitor.keepHFiles(tabledir.getName());
   }
 
   /**

@@ -64,6 +64,7 @@ import org.apache.hadoop.hbase.TableNotDisabledException;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
+import org.apache.hadoop.hbase.backup.TableHFileArchiveTracker;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.catalog.MetaReader;
 import org.apache.hadoop.hbase.client.HConnectionManager;
@@ -91,7 +92,6 @@ import org.apache.hadoop.hbase.master.handler.TableDeleteFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableEventHandler;
 import org.apache.hadoop.hbase.master.handler.TableModifyFamilyHandler;
 import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
-import org.apache.hadoop.hbase.master.RegionPlan;
 import org.apache.hadoop.hbase.monitoring.MemoryBoundedLogMessageBuffer;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
@@ -238,6 +238,8 @@ Server {
    * MX Bean for MasterInfo
    */
   private ObjectName mxBean = null;
+
+  private TableHFileArchiveTracker tableHfileArchiveTracker;
 
   /**
    * Initializes the HMaster. The steps are as follows:
@@ -454,6 +456,9 @@ Server {
     boolean wasUp = this.clusterStatusTracker.isClusterUp();
     if (!wasUp) this.clusterStatusTracker.setClusterUp();
 
+    this.tableHfileArchiveTracker = TableHFileArchiveTracker.create(zooKeeper, this);
+    this.tableHfileArchiveTracker.start();
+
     LOG.info("Server active/primary master; " + this.serverName +
         ", sessionid=0x" +
         Long.toHexString(this.zooKeeper.getRecoverableZooKeeper().getSessionId()) +
@@ -611,7 +616,8 @@ Server {
     // been assigned.
     status.setStatus("Starting balancer and catalog janitor");
     this.balancerChore = getAndStartBalancerChore(this);
-    this.catalogJanitorChore = new CatalogJanitor(this, this);
+    this.catalogJanitorChore = new CatalogJanitor(this, this,
+        this.tableHfileArchiveTracker);
     Threads.setDaemonThreadRunning(catalogJanitorChore.getThread());
 
     registerMBean();
@@ -1870,6 +1876,22 @@ Server {
    */
   public double getAverageLoad() {
     return this.assignmentManager.getAverageLoad();
+  }
+
+  /**
+   * Exposed for TESTING only!
+   * @return the internal tracker for archiving hfiles
+   */
+  TableHFileArchiveTracker getHFileArchiveMonitor() {
+    return this.tableHfileArchiveTracker;
+  }
+
+  /**
+   * Exposed for TESTING!
+   * @return the current catalog janitor
+   */
+  CatalogJanitor getCatalogJanitor() {
+    return this.catalogJanitorChore;
   }
 
   /**

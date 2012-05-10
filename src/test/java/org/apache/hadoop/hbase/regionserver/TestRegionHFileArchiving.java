@@ -165,7 +165,7 @@ public class TestRegionHFileArchiving {
     LOG.debug("Stopping backup and testing that we don't archive");
     admin.disableHFileBackup(STRING_TABLE_NAME);
     int counter = 0;
-    while (monitor.archiveHFiles(STRING_TABLE_NAME)) {
+    while (monitor.keepHFiles(STRING_TABLE_NAME)) {
       LOG.debug("Waiting for archive change to propaate");
       Thread.sleep(100);
       // max tries to propagate - if not, something is probably horribly
@@ -212,7 +212,7 @@ public class TestRegionHFileArchiving {
     admin.enableHFileBackup(TABLE_NAME);
 
     // 4. make sure that archiving is enabled for that tracker
-    assertTrue(tracker.archiveHFiles(STRING_TABLE_NAME));
+    assertTrue(tracker.keepHFiles(STRING_TABLE_NAME));
   }
 
   /**
@@ -235,7 +235,7 @@ public class TestRegionHFileArchiving {
       // make sure that at least regions hosting the table have received the
       // update to start archiving
       if (hrs.getOnlineRegions(TABLE_NAME).size() > 0) {
-        assertTrue(hrs.getHFileArchiveMonitor().archiveHFiles(STRING_TABLE_NAME));
+        assertTrue(hrs.getHFileArchiveMonitor().keepHFiles(STRING_TABLE_NAME));
       }
     }
 
@@ -422,7 +422,7 @@ public class TestRegionHFileArchiving {
     tries = 0;
     while (!done && tries++ < maxTries) {
       // wait for flushes
-      region.checkResources();
+      region.waitForFlushesAndCompactions();
       synchronized (store.filesCompacting) {
         synchronized (store.flushLock) {
           LOG.debug("Locked the store");
@@ -537,17 +537,13 @@ public class TestRegionHFileArchiving {
       public boolean apply(HRegionServer input) {
         // get the names of the regions hosted by the rs
         Collection<String> regions;
-        try {
-          regions = Collections2.transform(input.getOnlineRegions(),
-            new Function<HRegionInfo, String>() {
-              @Override
-              public String apply(HRegionInfo input) {
-                return input.getEncodedName();
-              }
-            });
-        } catch (IOException e) {
-          throw new RuntimeException(e);
-        }
+        regions = Collections2.transform(input.getOnlineRegions(TABLE_NAME),
+          new Function<HRegion, String>() {
+            @Override
+            public String apply(HRegion input) {
+              return input.getRegionInfo().getEncodedName();
+            }
+          });
 
         // then check to make sure this RS is serving one of the serving regions
         boolean found = false;
@@ -567,7 +563,7 @@ public class TestRegionHFileArchiving {
     // check each of the region servers to make sure it has got the update
     for (HRegionServer serving : regionservers) {
       assertTrue("RegionServer:" + serving + " hasn't been included in backup",
-        serving.hfileArchiveTracker.archiveHFiles(STRING_TABLE_NAME));
+        serving.hfileArchiveTracker.keepHFiles(STRING_TABLE_NAME));
     }
   }
 

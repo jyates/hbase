@@ -662,10 +662,14 @@ public final class HConstants {
   public static final String ENABLE_WAL_COMPRESSION =
     "hbase.regionserver.wal.enablecompression";
 
-/** Region in Transition metrics threshold time */
+  /** Region in Transition metrics threshold time */
   public static final String METRICS_RIT_STUCK_WARNING_THRESHOLD="hbase.metrics.rit.stuck.warning.threshold";
 
   public static final String LOAD_BALANCER_SLOP_KEY = "hbase.regions.slop";
+
+  /** Configuration key for the directory to backup HFiles for a table */
+  public static final String HFILE_ARCHIVE_DIRECTORY = "hbase.table.archive.directory";
+  public static final String HFILE_ARCHIVE_ZNODE_PARENT = "hfilearchive";
 
   private HConstants() {
     // Can't be instantiated with this ctor.

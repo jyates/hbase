@@ -24,6 +24,7 @@ import java.util.Map;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hbase.backup.HFileArchiveMonitor;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
@@ -86,4 +87,10 @@ public interface RegionServerServices extends OnlineRegions {
    * @return Return the FileSystem object used by the regionserver
    */
   public FileSystem getFileSystem();
+  
+  /**
+   * @return the manager that keeps track of which tables should be archived and
+   *         where they should be archived
+   */
+  public HFileArchiveMonitor getHFileArchiveMonitor();
 }

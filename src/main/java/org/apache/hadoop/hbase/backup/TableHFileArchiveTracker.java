@@ -38,10 +38,10 @@ public class TableHFileArchiveTracker extends ZooKeeperListener implements HFile
   private static final Log LOG = LogFactory.getLog(TableHFileArchiveTracker.class);
   private volatile HFileArchiveTableMonitor monitor;
 
-  private TableHFileArchiveTracker(ZooKeeperWatcher watcher, HFileArchiveTableMonitor tracker) {
+  private TableHFileArchiveTracker(ZooKeeperWatcher watcher, HFileArchiveTableMonitor monitor) {
     super(watcher);
     watcher.registerListener(this);
-    this.monitor = tracker;
+    this.monitor = monitor;
   }
 
   /**
@@ -204,8 +204,8 @@ public class TableHFileArchiveTracker extends ZooKeeperListener implements HFile
   }
 
   @Override
-  public boolean archiveHFiles(String tableName) {
-    return getMonitor().archiveHFiles(tableName);
+  public boolean keepHFiles(String tableName) {
+    return getMonitor().keepHFiles(tableName);
   }
 
   /**

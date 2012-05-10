@@ -23,9 +23,13 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
@@ -72,8 +76,13 @@ import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.ScanResponse;
 import org.apache.hadoop.hbase.regionserver.wal.FailedLogCloseException;
 import org.apache.hadoop.hbase.util.Addressing;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
+import org.apache.hadoop.hbase.zookeeper.RootRegionTracker;
+import org.apache.hadoop.hbase.zookeeper.ZKTable;
+import org.apache.hadoop.hbase.zookeeper.ZKUtil;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
@@ -1784,6 +1793,237 @@ public class HBaseAdmin implements Abortable, Closeable {
       LOG.error("Could not getClusterStatus()",e);
       return null;
     }
+  }
+
+  /**
+   * @return A new {@link HFileArchiveManager} to manage which tables' hfiles
+   *         should be archived rather than deleted.
+   * @throws ZooKeeperConnectionException
+   * @throws IOException
+   */
+  private synchronized HFileArchiveManager createHFileArchiveManager()
+      throws ZooKeeperConnectionException, IOException {
+    return new HFileArchiveManager(this.getConnection(), this.conf);
+  }
+
+  /**
+   * Turn on backups for all HFiles for the given table.
+   * <p>
+   * All deleted hfiles are moved to the
+   * {@value HConstants#HFILE_ARCHIVE_DIRECTORY} directory under the table
+   * directory, rather than being deleted.
+   * <p>
+   * If backups are already enabled for this table, does nothing. <b>
+   * Synchronous operation.</b>
+   * <p>
+   * Assumes that offline/dead regionservers will get the update on start.
+   * <p>
+   * <b>WARNING: No guarantees are made if multiple clients simultaneously
+   * attempt to disable/enable hfile backup on the same table.</b>
+   * @param table name of the table to start backing up
+   * @throws IOException
+   */
+  public void enableHFileBackup(String table) throws IOException {
+    enableHFileBackup(Bytes.toBytes(table));
+  }
+
+
+  /**
+   * Enable HFile backups synchronously. Ensures that all regionservers hosting
+   * the table have recived the notification to start archiving hfiles. <b>
+   * Synchronous operation.</b>
+   * <p>
+   * Assumes that offline/dead regionservers will get the update on start.
+   * <p>
+   * <b>WARNING: No guarantees are made if multiple clients simultaneously
+   * attempt to disable/enable hfile backup on the same table.</b>
+   * @param tableName name of the table on which to start backing up hfiles
+   * @throws IOException if the backup cannot be enabled
+   */
+  public void enableHFileBackup(final byte[] tableName) throws IOException {
+    // this is a little inefficient since we do a read of meta to see if it
+    // exists, but is a lot cleaner than catching a NPE below when looking for
+    // online regions and the table doesn't exist.
+    if (!this.tableExists(tableName)) {
+      throw new IOException("Table: " + Bytes.toString(tableName)
+          + " does not exist, cannot create a backup for a non-existant table.");
+    }
+    // do the asynchronous update
+    enableHFileBackupAsync(tableName);
+
+    // and then wait for it to propagate
+    // while all the regions have yet to receive zk update and we are not done
+    // retrying and backing off
+    CatalogTracker ct = getCatalogTracker();
+    HFileArchiveManager manager = createHFileArchiveManager();
+    int tries = 0;
+    try {
+      // just doing the normal amount of retries, as opposed to the multiplier
+      // since we are creating a new connection every time, rather than worrying
+      // about connection timeouts, unavailability. If ZK does go down, then we
+      // are pretty hosed in terms of backup and want to bail quickly.
+      while (!allServersArchivingTable(manager, ct, tableName) && tries < this.numRetries) {
+        // Sleep while we wait for the RS to get updated
+        try {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("try:" + tries + "/" + this.numRetries
+                + ", Not all regionservers for table '" + Bytes.toString(tableName)
+                + "' have joined the backup. Waiting...");
+          }
+          Thread.sleep(getPauseTime(tries++));
+        } catch (InterruptedException e) {
+          throw new InterruptedIOException("Interrupted when backing up table "
+              + Bytes.toString(tableName));
+        }
+      }
+
+      LOG.debug("Done waiting for table: " + Bytes.toString(tableName) + " to join archive.");
+      // if we couldn't get all regions we expect, bail out
+      if (tries >= this.numRetries) {
+        // disable backups
+        manager.disableHFileBackup(tableName);
+        throw new IOException("Failed to get all regions to join backup in " + tries
+            + " tries, for table:" + Bytes.toString(tableName));
+      }
+    } finally {
+      cleanupCatalogTracker(ct);
+      manager.stop();
+    }
+  }
+
+  /**
+   * Turn on backups for all HFiles for the given table.
+   * <p>
+   * All deleted hfiles are moved to the archive directory under the table
+   * directory, rather than being deleted.
+   * <p>
+   * If backups are already enabled for this table, does nothing.
+   * @param table name of the table to start backing up
+   * @throws IOException if an unexpected exception occurs
+   */
+  public void enableHFileBackupAsync(final byte[] table)
+      throws IOException {
+    createHFileArchiveManager().enableHFileBackup(table).stop();
+  }
+
+  /**
+   * Disable hfile backups for the given table.
+   * <p>
+   * Previously backed up files are still retained (if present).
+   * <p>
+   * Asynchronous operation - some extra HFiles may be retained, in the archive
+   * directory after disable is called, dependent on the latency in zookeeper to
+   * the servers.
+   * @param table name of the table stop backing up
+   * @throws IOException if an unexpected exception occurs
+   */
+  public void disableHFileBackup(String table) throws IOException {
+    disableHFileBackup(Bytes.toBytes(table));
+  }
+
+  /**
+   * Disable hfile backups for the given table.
+   * <p>
+   * Previously backed up files are still retained (if present).
+   * <p>
+   * Asynchronous operation - some extra HFiles may be retained, in the archive
+   * directory after disable is called, dependent on the latency in zookeeper to
+   * the servers.
+   * @param table name of the table stop backing up
+   * @throws IOException if an unexpected exception occurs
+   */
+  public void disableHFileBackup(final byte[] table) throws IOException {
+    createHFileArchiveManager().disableHFileBackup(table).stop();
+  }
+
+  /**
+   * Disable hfile backups for all tables.
+   * <p>
+   * Previously backed up files are still retained (if present).
+   * <p>
+   * Asynchronous operation - some extra HFiles may be retained, in the archive
+   * directory after disable is called, dependent on the latency in zookeeper to
+   * the servers.
+   * @throws IOException if an unexpected exception occurs
+   */
+  public void disableHFileBackup() throws IOException {
+    createHFileArchiveManager().disableHFileBackup().stop();
+  }
+
+  /**
+   * Determine if archiving is enabled (but not necessarily fully propagated)
+   * for a table
+   * @param table name of the table to check
+   * @return <tt>true</tt> if it is, <tt>false</tt> otherwise
+   * @throws IOException if a connection to ZooKeeper cannot be established
+   */
+  public boolean getArchivingEnabled(byte[] table) throws IOException {
+    HFileArchiveManager manager = createHFileArchiveManager();
+    try {
+      return manager.isArchivingEnabled(table);
+    } catch (IOException e) {
+      return false;
+    } finally {
+      manager.stop();
+    }
+  }
+
+  /**
+   * Determine if archiving is enabled (but not necessarily fully propagated)
+   * for a table
+   * @param table name of the table to check
+   * @return <tt>true</tt> if it is, <tt>false</tt> otherwise
+   * @throws IOException if a connection to ZooKeeper cannot be established
+   */
+  public boolean getArchivingEnabled(String table) throws IOException {
+    return getArchivingEnabled(Bytes.toBytes(table));
+  }
+
+  private boolean allServersArchivingTable(HFileArchiveManager manager, CatalogTracker ct,
+      byte[] tableName) throws IOException {
+
+    // then get the list of RS that have confirmed archiving table
+    List<String> serverNames = manager.serversArchiving(tableName);
+    // add the master as a server to check for
+
+    Collections.sort(serverNames);
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Expecting archiving from at least servers:" + serverNames);
+    }
+
+    // get the regions and their servers associated with the table
+    List<Pair<HRegionInfo, ServerName>> regionAndLocations;
+    try {
+      regionAndLocations = MetaReader.getTableRegionsAndLocations(ct, Bytes.toString(tableName));
+    } catch (InterruptedException e) {
+      throw new InterruptedIOException(
+          "Interrupted when getting expected regions and servers to backup table: "
+              + Bytes.toString(tableName));
+    }
+    // now get the RS that should be archiving the table
+    Set<String> expected = new TreeSet<String>();
+    for (Pair<HRegionInfo, ServerName> rl : regionAndLocations) {
+      // if the region is assigned
+      if (rl.getSecond() != null) {
+        expected.add(rl.getSecond().toString());
+      }
+    }
+    // and add the master server as an expected server too, since that has the
+    // catalog janitor
+    expected.add(this.getClusterStatus().getMaster().toString());
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Expecting archiving from at least servers:" + serverNames);
+    }
+
+    // now compare the list of expected vs. those currently checked in
+    // now build list of the current RS
+    for (String expectedServer : expected) {
+      // if the expected RS is not in the list, then they haven't all joined
+      if (Collections.binarySearch(serverNames, expectedServer) < 0) return false;
+    }
+    return true;
   }
 
   /**

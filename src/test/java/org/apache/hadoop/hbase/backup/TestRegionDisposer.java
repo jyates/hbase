@@ -113,7 +113,7 @@ public class TestRegionDisposer {
     Path regionDir = HRegion.getRegionDir(region.getTableDir().getParent(), region.getRegionInfo());
 
     HFileArchiveMonitor monitor = Mockito.mock(HFileArchiveMonitor.class);
-    Mockito.when(monitor.archiveHFiles(STRING_TABLE_NAME)).thenReturn(true);
+    Mockito.when(monitor.keepHFiles(STRING_TABLE_NAME)).thenReturn(true);
     RegionDisposer.deposeRegion(fs, monitor, region.getRegionInfo());
     
     // check for the existence of the archive directory and some files in it
@@ -139,7 +139,7 @@ public class TestRegionDisposer {
     // fs.copyFromLocalFile(archive, regionDir);
 
     // and depose the region without archiving
-    Mockito.when(monitor.archiveHFiles(STRING_TABLE_NAME)).thenReturn(false);
+    Mockito.when(monitor.keepHFiles(STRING_TABLE_NAME)).thenReturn(false);
     RegionDisposer.deposeRegion(fs, monitor, region.getRegionInfo());
 
     assertFalse(fs.exists(regionDir));
