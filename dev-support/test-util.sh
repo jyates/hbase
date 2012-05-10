@@ -20,6 +20,29 @@
 # * limitations under the License.
 # */
 
+# Run the tests as well as general pre-test checking
+# Ensures the correct server/local profile is set
+# and echos the command (if desired) before running
+# args:
+# cmd - command to run
+# server - 1 if the test is running on the server
+# echoUsage - 1 if the command to be run should be echoed first
+run()
+{
+	# Add that is should run locally, if not on the server
+	if [ ${server} -eq 0 ]; then
+		cmd="${cmd} -PlocalTests"
+	fi
+	
+	# Print the command, if we should
+	if [ ${echoUsage} -eq 1 ]; then
+		echo "${cmd}"
+	fi
+	
+	# Run the command
+	$cmd
+}
+
 usage()
 {
 cat << EOF
@@ -36,6 +59,7 @@ options:
    -f FILE     Run the additional tests listed in the FILE
    -u          Only run unit tests. Default is to run 
                unit and integration tests
+   -i          Run all tests individually. Default: not enabled
    -n N        Run each test N times. Default = 1.
    -s N        Print N slowest tests
    -H          Print which tests are hanging (if any)
@@ -52,6 +76,7 @@ testType=verify
 numIters=1
 showSlowest=
 showHanging=
+together=1
 
 # normalize path refs for surefire
 if [[ "$0" != /* ]]; then
@@ -63,21 +88,21 @@ else
 fi
 testDir=$scriptDir/../../../target/surefire-reports
 
-while getopts "hcerHun:s:f:" OPTION
+while getopts "hceriHun:s:f:" OPTION
 do
      case $OPTION in
          h)
              usage
              exit 0
              ;;
-	 c)
-	     doClean="clean"
-	     ;;
+         c)
+            doClean="clean"
+            ;;
          H)
              showHanging=1
              ;;
          u)
-	     testType=test
+	         testType=test
              ;;
          n)
              numIters=$OPTARG
@@ -88,13 +113,16 @@ do
          f)
              testFile=$OPTARG
              ;;
-        e)
+	     e)
              echoUsage=1
              ;;
-        r)
+         r)
             server=1
             ;;
-	 ?) 
+         i)
+            together=0
+            ;;
+        ?) 
 	     usage
 	     exit 1
      esac
@@ -107,71 +135,76 @@ if [ ! -z $testFile ]; then
     exec 3<$testFile
 
     while read <&3 line ; do
-	if [ ! -z "$line" ]; then
-	    test[$testIdx]="$line"
-	fi
-	testIdx=$(($testIdx+1))
+			if [ ! -z "$line" ]; then
+				test[$testIdx]="$line"
+			fi
+			testIdx=$(($testIdx+1))
     done
 fi
+
+echo "Running tests..."
 
 # add tests specified on cmd line
 if [ ! -z $BASH_ARGC ]; then
     shift $(($OPTIND - 1))
     for (( i = $OPTIND; i <= $BASH_ARGC; i++ ))
     do
-	test[$testIdx]=$1;
-	testIdx=$(($testIdx+1))
-	shift
+			test[$testIdx]=$1;
+			testIdx=$(($testIdx+1))
+			shift
     done
 fi
 
-echo "Running tests..."
 numTests=${#test[@]}
+tests=
+
+if [ $together -eq 1 ]; then
+	echo "Running all tests together."
+	if [ $numTests -ge 1 ]; then 
+	    tests="${test[0]}"
+			for (( j=1; j < $numTests; j++ ))
+			do  
+				tests="${tests},${test[$j]}"
+			done
+			numTests=0
+	fi
+else
+    echo "Running all tests individually."
+fi
+
+#Set the general command for the test
+base_command="nice -10 mvn $doClean $testType"
 
 for ((  i = 1 ;  i <= $numIters; i++  ))
 do
     if [[ $numTests > 0 ]]; then
         #Now loop through each test
-	for (( j = 0; j < $numTests; j++ ))
-	do
-        # Create the general command
-        cmd="nice -10 mvn $doClean $testType -Dtest=${test[$j]}"
+        for (( j = 0; j < $numTests; j++ ))
+        do
+            # Create the general command each time
+            cmd="${base_command}"
+            #and then add the test to run
+            cmd="${cmd} -Dtest=${test[$j]}" 
 
-        # Add that is should run locally, if not on the server
-        if [ ${server} -eq 0 ]; then
-            cmd="${cmd} -P localTests"
-        fi
+            run
 
-        # Print the command, if we should
-        if [ ${echoUsage} -eq 1 ]; then
-            echo "${cmd}"
-        fi
-
-        # Run the command
-        $cmd
-
-        if [ $? -ne 0 ]; then
-		echo "${test[$j]} failed, iteration: $i"
-		exit 1
-	    fi
-	done
+            if [ $? -ne 0 ]; then
+                echo "${test[$j]} failed, iteration: $i"
+                exit 1
+            fi
+        done
     else
-	echo "EXECUTING ALL TESTS"
-    # Create the general command
-    cmd="nice -10 mvn $doClean $testType"
+        echo "EXECUTING ALL TESTS"
 
-    # Add that is should run locally, if not on the server
-    if [ ${server} -eq 0 ]; then
-       cmd="${cmd} -P localTests"
-    fi
+        #append the tests to run to the command
+        if [[ ! -z tests ]]; then
+            cmd="${base_command} -Dtest=${tests}"
+        else
+            cmd="${base_command}"
+        fi
 
-    # Print the command, if we should
-    if [ ${echoUsage} -eq 1 ]; then
-        echo "${cmd}"
-    fi
-
-    #now run the command
-    $cmd
+        #run the command
+        run
     fi
 done
 
@@ -181,7 +214,7 @@ if [ ! -z $showSlowest ]; then
     testNameIdx=0
     for (( i = 0; i < ${#test[@]}; i++ ))
     do
-	testNames[$i]=$testDir/'TEST-'${test[$i]}'.xml'
+		testNames[$i]=$testDir/'TEST-'${test[$i]}'.xml'
     done
 
     echo "Slowest $showSlowest tests:"
