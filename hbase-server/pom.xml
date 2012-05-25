@@ -32,6 +32,35 @@
         </configuration>
       </plugin>
 
+      <!-- build the site.
+        TODO: this needs fixing.
+       -->
+       <plugin>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>copy-sitedescriptor</id>
+            <!-- fetch site.{xml,vm} before creating site documentation -->
+            <phase>pre-site</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${site.basedir}/src/site/</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${site.basedir}/src/site/</directory>
+                  <includes>
+                    <include>**/site.xml</include>
+                    <include>**/site.vm</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
       <!-- Website/Reference Guide building -->
       <plugin>
         <groupId>com.agilejava.docbkx</groupId>

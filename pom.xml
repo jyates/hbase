@@ -493,6 +493,10 @@
           <artifactId>jamon-maven-plugin</artifactId>
           <version>${jamon.plugin.version}</version>
         </plugin>
+        <plugin>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>${maven.resources.plugin.version}</version><!--$NO-MVN-MAN-VER$ -->
+        </plugin>
         <!-- Make a jar and put the sources in the jar.
         In the parent pom, so submodules will do the right thing. -->
         <plugin>
@@ -621,31 +625,13 @@
 
     <!-- Plugins inherited by all modules -->
     <plugins>
+      <!-- Ignore running the assembly in the top-level.
+       That's all handled by hbase-assembly -->
       <plugin>
-        <artifactId>maven-resources-plugin</artifactId>
-        <version>${maven.resources.plugin.version}</version><!--$NO-MVN-MAN-VER$ -->
-        <executions>
-          <execution>
-            <id>copy-sitedescriptor</id>
-            <!-- fetch site.{xml,vm} before creating site documentation -->
-            <phase>pre-site</phase>
-            <goals>
-              <goal>copy-resources</goal>
-            </goals>
-            <configuration>
-              <outputDirectory>${site.basedir}/src/site/</outputDirectory>
-              <resources>
-                <resource>
-                  <directory>${site.basedir}/src/site/</directory>
-                  <includes>
-                    <include>**/site.xml</include>
-                    <include>**/site.vm</include>
-                  </includes>
-                </resource>
-              </resources>
-            </configuration>
-          </execution>
-        </executions>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <configuration>
+          <skipAssembly>true</skipAssembly>
+        </configuration>
       </plugin>
     </plugins>
   </build>
