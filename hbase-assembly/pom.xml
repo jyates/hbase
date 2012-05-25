@@ -54,6 +54,7 @@
       <plugin>
         <artifactId>maven-assembly-plugin</artifactId>
         <configuration>
+          <skipAssembly>false</skipAssembly>
           <attach>false</attach>
           <tarLongFileMode>gnu</tarLongFileMode>
           <appendAssemblyId>false</appendAssemblyId>
