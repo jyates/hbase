@@ -55,6 +55,7 @@
   <modules>
     <module>hbase-assembly</module>
     <module>hbase-server</module>
+    <module>hbase-documentation</module>
   </modules>
 
   <scm>
@@ -338,11 +339,34 @@
   </pluginRepositories>
 
   <build>
-    <!-- Some plugins (javadoc for example) can be used in the normal build- and the site phase.
+    <!-- Some plugins (for example) can be used in the normal build- and the site phase.
          These plugins inherit their options from the <reporting> section below. These settings
          can be overwritten here. -->
     <pluginManagement>
       <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${javadoc.version}</version>
+          <executions>
+            <execution>
+              <id>javadoc</id>
+              <goals>
+                <goal>javadoc</goal>
+                <goal>test-javadoc</goal>
+              </goals>
+              <phase>pre-site</phase>
+            </execution>
+          </executions>
+          <configuration>
+            <docfilessubdirs>true</docfilessubdirs>
+            <excludePackageNames>org.apache.hadoop.hbase.protobuf.generated.*:org.apache.hadoop.hbase.avro.generated.*:org.apache.hadoop.hbase.thrift.generated:org.apache.hadoop.hbase.rest.generated</excludePackageNames>
+            <debug>true</debug>
+            <maxmemory>2g</maxmemory>
+            <verbose>true</verbose>
+            <reportOutputDirectory>target</reportOutputDirectory>
+          </configuration>
+        </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-site-plugin</artifactId>
@@ -354,13 +378,6 @@
               <version>2.2</version>
             </dependency>
           </dependencies>
-          <configuration>
-            <inputEncoding>UTF-8</inputEncoding>
-            <outputEncoding>UTF-8</outputEncoding>
-            <!-- FIX THIS
-            <templateFile>src/site/site.vm</templateFile>
-             -->
-          </configuration>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -625,6 +642,33 @@
 
     <!-- Plugins inherited by all modules -->
     <plugins>
+      <!-- All submodules build their javadocs -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+      </plugin>
+      <!-- All submodules move their javadocs to the apidocs directory -->
+      <plugin>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>copy-javadocs</id>
+            <!-- fetch the  before creating site documentation -->
+            <phase>pre-site</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${javadoc.output.dir}</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>target/apidocs</directory>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <!-- Ignore running the assembly in the top-level.
        That's all handled by hbase-assembly -->
       <plugin>
@@ -689,7 +733,7 @@
     <package.pid.dir>/var/run/hbase</package.pid.dir>
     <package.release>1</package.release>
     <final.name>${project.artifactId}-${project.version}</final.name>
-    <site.basedir>${project.basedir}</site.basedir>
+    <javadoc.output.dir>${project.basedir}/hbase-documentation/target/site/apidocs</javadoc.output.dir>
     
     <!-- Intraproject jar naming properties -->
     <!-- TODO this is pretty ugly, but works for the moment.
@@ -1441,25 +1485,6 @@
               <report>license</report>
               <report>scm</report>
               <report>index</report>
-            </reports>
-          </reportSet>
-        </reportSets>
-      </plugin>
-      <plugin>
-        <artifactId>maven-javadoc-plugin</artifactId>
-        <version>${javadoc.version}</version>
-        <configuration>
-          <docfilessubdirs>true</docfilessubdirs>
-              <excludePackageNames>org.apache.hadoop.hbase.protobuf.generated.*:org.apache.hadoop.hbase.avro.generated.*:org.apache.hadoop.hbase.thrift.generated:org.apache.hadoop.hbase.rest.generated</excludePackageNames>
-              <debug>true</debug>
-              <maxmemory>2g</maxmemory>
-              <verbose>true</verbose>
-        </configuration>
-        <reportSets>
-          <reportSet>
-            <id>default</id>
-            <reports>
-              <report>javadoc</report>
             </reports>
           </reportSet>
         </reportSets>

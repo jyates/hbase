@@ -32,108 +32,6 @@
         </configuration>
       </plugin>
 
-      <!-- build the site.
-        TODO: this needs fixing.
-       -->
-       <plugin>
-        <artifactId>maven-resources-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>copy-sitedescriptor</id>
-            <!-- fetch site.{xml,vm} before creating site documentation -->
-            <phase>pre-site</phase>
-            <goals>
-              <goal>copy-resources</goal>
-            </goals>
-            <configuration>
-              <outputDirectory>${site.basedir}/src/site/</outputDirectory>
-              <resources>
-                <resource>
-                  <directory>${site.basedir}/src/site/</directory>
-                  <includes>
-                    <include>**/site.xml</include>
-                    <include>**/site.vm</include>
-                  </includes>
-                </resource>
-              </resources>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
-      <!-- Website/Reference Guide building -->
-      <plugin>
-        <groupId>com.agilejava.docbkx</groupId>
-        <artifactId>docbkx-maven-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>multipage</id>
-            <phase>pre-site</phase>
-            <configuration>
-              <xincludeSupported>true</xincludeSupported>
-              <navigShowtitles>true</navigShowtitles>
-              <chunkedOutput>true</chunkedOutput>
-              <useIdAsFilename>true</useIdAsFilename>
-              <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
-              <sectionAutolabel>true</sectionAutolabel>
-              <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
-              <targetDirectory>${parent.basedir}/target/site/</targetDirectory>
-              <htmlStylesheet>../css/freebsd_docbook.css</htmlStylesheet>
-              <htmlCustomization>${parent.basedir}/src/docbkx/customization.xsl</htmlCustomization>
-              <imgSrcPath>../images/</imgSrcPath>
-              <tocMaxDepth>2</tocMaxDepth>
-              <insertXrefPageNumber>yes</insertXrefPageNumber>
-            </configuration>
-            <goals>
-              <goal>generate-html</goal>
-            </goals>
-          </execution>
-          <execution>
-            <id>onepage</id>
-            <phase>pre-site</phase>
-            <configuration>
-              <xincludeSupported>true</xincludeSupported>
-              <useIdAsFilename>true</useIdAsFilename>
-              <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
-              <sectionAutolabel>true</sectionAutolabel>
-              <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
-              <targetDirectory>${parent.basedir}/target/site/</targetDirectory>
-              <htmlStylesheet>css/freebsd_docbook.css</htmlStylesheet>
-              <imgSrcPath>images/</imgSrcPath>
-              <tocMaxDepth>2</tocMaxDepth>
-              <insertXrefPageNumber>yes</insertXrefPageNumber>
-            </configuration>
-            <goals>
-              <goal>generate-html</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>xml-maven-plugin</artifactId>
-        <executions>
-          <execution>
-            <goals>
-              <goal>transform</goal>
-            </goals>
-            <phase>pre-site</phase>
-          </execution>
-        </executions>
-        <configuration>
-          <transformationSets>
-            <transformationSet>
-              <dir>${basedir}/hbase-server/src/main/resources/</dir>
-              <includes>
-                <include>hbase-default.xml</include>
-              </includes>
-              <stylesheet>${basedir}/src/main/xslt/configuration_to_docbook_section.xsl</stylesheet>
-              <outputDir>${basedir}/target/site/</outputDir>
-            </transformationSet>
-          </transformationSets>
-        </configuration>
-      </plugin>
-
       <!-- Run with -Dmaven.test.skip.exec=true to build -tests.jar without running 
         tests (this is needed for upstream projects whose tests need this jar simply for 
         compilation) -->
@@ -534,18 +432,9 @@
         <plugins>
           <plugin>
             <artifactId>maven-javadoc-plugin</artifactId>
-            <version>2.6.1</version>
             <configuration>
               <docfilessubdirs>true</docfilessubdirs>
             </configuration>
-            <executions>
-              <execution>
-                <phase>prepare-package</phase>
-                <goals>
-                  <goal>javadoc</goal>
-                </goals>
-              </execution>
-            </executions>
           </plugin>
         </plugins>
       </build>
@@ -699,5 +588,14 @@
         </plugins>
       </build>
     </profile>
-    </profiles>
+  </profiles>
+
+  <reporting>
+    <plugins>
+    <!-- Make sure the javadoc gets built -->
+      <plugin>
+        <artifactId>maven-javadoc-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </reporting>
 </project>

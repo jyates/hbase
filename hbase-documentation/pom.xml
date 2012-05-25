@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+        <artifactId>hbase</artifactId>
+        <groupId>org.apache.hbase</groupId>
+        <version>0.95-SNAPSHOT</version>
+    </parent>
+  <artifactId>hbase-documentation</artifactId>
+  <packaging>pom</packaging>
+  
+  <name>HBase - Documentation</name>
+  <description>Documentation for HBase. This holds the examples as well as 
+  all the javadoc and site files.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.hbase</groupId>
+      <artifactId>hbase-server</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins> 
+       <!-- need to run the mvn process-resource phase before building the site -->
+       <plugin>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>copy-sitedescriptor</id>
+            <!-- fetch site.{xml,vm} before creating site documentation -->
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.basedir}/src/site/</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${site.basedir}/src/site/</directory>
+                  <includes>
+                    <include>**/site.xml</include>
+                    <include>**/site.vm</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Website/Reference Guide building -->
+      <plugin>
+        <artifactId>maven-site-plugin</artifactId>
+        <configuration>
+          <inputEncoding>UTF-8</inputEncoding>
+          <outputEncoding>UTF-8</outputEncoding>
+          <templateFile>src/site/site.vm</templateFile>
+        </configuration>
+      </plugin>
+      <!-- This has to come before the docbx plugin
+      so hbase-default.xml gets transformed properly -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>xml-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>transform</goal>
+            </goals>
+            <phase>pre-site</phase>
+          </execution>
+        </executions>
+        <configuration>
+          <transformationSets>
+            <transformationSet>
+              <!-- Ugly dependency on project structure -->
+              <dir>../hbase-server/src/main/resources/</dir>
+              <includes>
+                <include>hbase-default.xml</include>
+              </includes>
+              <stylesheet>${basedir}/src/xslt/configuration_to_docbook_section.xsl</stylesheet>
+              <outputDir>${basedir}/target/site/</outputDir>
+            </transformationSet>
+          </transformationSets>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>com.agilejava.docbkx</groupId>
+        <artifactId>docbkx-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>multipage</id>
+            <phase>pre-site</phase>
+            <configuration>
+              <xincludeSupported>true</xincludeSupported>
+              <navigShowtitles>true</navigShowtitles>
+              <chunkedOutput>true</chunkedOutput>
+              <useIdAsFilename>true</useIdAsFilename>
+              <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
+              <sectionAutolabel>true</sectionAutolabel>
+              <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
+              <targetDirectory>target/site/</targetDirectory>
+              <htmlStylesheet>${basedir}/src/resources/css/freebsd_docbook.css</htmlStylesheet>
+              <htmlCustomization>${basedir}/src/docbkx/customization.xsl</htmlCustomization>
+              <imgSrcPath>${basedir}/src/resources/images/</imgSrcPath>
+              <tocMaxDepth>2</tocMaxDepth>
+              <insertXrefPageNumber>yes</insertXrefPageNumber>
+            </configuration>
+            <goals>
+              <goal>generate-html</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>onepage</id>
+            <phase>pre-site</phase>
+            <configuration>
+              <xincludeSupported>true</xincludeSupported>
+              <useIdAsFilename>true</useIdAsFilename>
+              <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
+              <sectionAutolabel>true</sectionAutolabel>
+              <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
+              <targetDirectory>target/site/</targetDirectory>
+              <htmlStylesheet>css/freebsd_docbook.css</htmlStylesheet>
+              <imgSrcPath>images/</imgSrcPath>
+              <tocMaxDepth>2</tocMaxDepth>
+              <insertXrefPageNumber>yes</insertXrefPageNumber>
+            </configuration>
+            <goals>
+              <goal>generate-html</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>
