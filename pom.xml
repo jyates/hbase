@@ -445,51 +445,6 @@
             </execution>
           </executions>
         </plugin>        
-         <!-- Run integration tests with mvn verify -->        
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-failsafe-plugin</artifactId>
-          <version>${surefire.version}</version>
-          <dependencies>
-            <dependency>
-              <groupId>org.apache.maven.surefire</groupId>
-              <artifactId>${surefire.provider}</artifactId>
-              <version>${surefire.version}</version>
-            </dependency>
-          </dependencies>
-          <configuration>
-            <skip>false</skip>
-            <forkMode>always</forkMode>
-            <includes>
-              <include>${integrationtest.include}</include>
-            </includes>
-            <excludes>
-              <exlude>${unittest.include}</exlude>
-              <exclude>**/*$*</exclude>
-              <exclude>${test.exclude.pattern}</exclude>
-            </excludes>
-            <redirectTestOutputToFile>${test.output.tofile}</redirectTestOutputToFile>
-            <environmentVariables>
-              <LD_LIBRARY_PATH>${env.LD_LIBRARY_PATH}:${project.build.directory}/nativelib</LD_LIBRARY_PATH>
-              <DYLD_LIBRARY_PATH>${env.DYLD_LIBRARY_PATH}:${project.build.directory}/nativelib</DYLD_LIBRARY_PATH>
-              <MALLOC_ARENA_MAX>4</MALLOC_ARENA_MAX>
-            </environmentVariables>
-          </configuration>
-          <executions>
-            <execution>
-              <id>integration-test</id>
-              <goals>
-                <goal>integration-test</goal>
-              </goals>
-            </execution>
-            <execution>
-              <id>verify</id>
-              <goals>
-                <goal>verify</goal>
-              </goals>
-            </execution>
-          </executions>
-        </plugin>
         <plugin>
           <artifactId>maven-clean-plugin</artifactId>
           <configuration>
@@ -629,49 +584,6 @@
           <groupId>com.agilejava.docbkx</groupId>
           <artifactId>docbkx-maven-plugin</artifactId>
           <version>2.0.14</version>
-          <executions>
-            <execution>
-              <id>multipage</id>
-              <phase>pre-site</phase>
-              <configuration>
-                <xincludeSupported>true</xincludeSupported>
-                <navigShowtitles>true</navigShowtitles>
-                <chunkedOutput>true</chunkedOutput>
-                <useIdAsFilename>true</useIdAsFilename>
-                <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
-                <sectionAutolabel>true</sectionAutolabel>
-                <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
-                <targetDirectory>${parent.basedir}/target/site/</targetDirectory>
-                <htmlStylesheet>../css/freebsd_docbook.css</htmlStylesheet>
-                <htmlCustomization>${parent.basedir}/src/docbkx/customization.xsl</htmlCustomization>
-                <imgSrcPath>../images/</imgSrcPath>
-                <tocMaxDepth>2</tocMaxDepth>
-                <insertXrefPageNumber>yes</insertXrefPageNumber>
-              </configuration>
-              <goals>
-                <goal>generate-html</goal>
-              </goals>
-            </execution>
-            <execution>
-              <id>onepage</id>
-              <phase>pre-site</phase>
-              <configuration>
-                <xincludeSupported>true</xincludeSupported>
-                <useIdAsFilename>true</useIdAsFilename>
-                <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
-                <sectionAutolabel>true</sectionAutolabel>
-                <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
-                <targetDirectory>${parent.basedir}/target/site/</targetDirectory>
-                <htmlStylesheet>css/freebsd_docbook.css</htmlStylesheet>
-                <imgSrcPath>images/</imgSrcPath>
-                <tocMaxDepth>2</tocMaxDepth>
-                <insertXrefPageNumber>yes</insertXrefPageNumber>
-              </configuration>
-              <goals>
-                <goal>generate-html</goal>
-              </goals>
-            </execution>
-          </executions>
           <dependencies>
             <dependency>
               <groupId>org.docbook</groupId>
@@ -685,26 +597,6 @@
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>xml-maven-plugin</artifactId>
           <version>1.0-beta-3</version>
-          <executions>
-            <execution>
-              <goals>
-                <goal>transform</goal>
-              </goals>
-              <phase>pre-site</phase>
-            </execution>
-          </executions>
-          <configuration>
-            <transformationSets>
-              <transformationSet>
-                <dir>${basedir}/src/main/resources/</dir>
-                <includes>
-                  <include>hbase-default.xml</include>
-                </includes>
-                <stylesheet>${basedir}/src/main/xslt/configuration_to_docbook_section.xsl</stylesheet>
-                <outputDir>${basedir}/target/site/</outputDir>
-              </transformationSet>
-            </transformationSets>
-          </configuration>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -730,41 +622,31 @@
     <!-- Plugins inherited by all modules -->
     <plugins>
       <plugin>
-        <groupId>org.apache.rat</groupId>
-        <artifactId>apache-rat-plugin</artifactId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>${maven.resources.plugin.version}</version><!--$NO-MVN-MAN-VER$ -->
+        <executions>
+          <execution>
+            <id>copy-sitedescriptor</id>
+            <!-- fetch site.{xml,vm} before creating site documentation -->
+            <phase>pre-site</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${site.basedir}/src/site/</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${site.basedir}/src/site/</directory>
+                  <includes>
+                    <include>**/site.xml</include>
+                    <include>**/site.vm</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-eclipse-plugin</artifactId>
-        <configuration>
-        </configuration>
-      </plugin>
-  <plugin>
-    <artifactId>maven-resources-plugin</artifactId>
-    <version>2.5</version>
-    <executions>
-      <execution>
-        <id>copy-sitedescriptor</id>
-        <!-- fetch site.{xml,vm} before creating site documentation -->
-        <phase>pre-site</phase>
-        <goals>
-          <goal>copy-resources</goal>
-        </goals>
-        <configuration>
-          <outputDirectory>${basedir}/src/site/</outputDirectory>
-          <resources>
-            <resource>
-              <directory>${site.basedir}/src/site/</directory>
-              <includes>
-                <include>**/site.xml</include>
-                <include>**/site.vm</include>
-              </includes>
-            </resource>
-          </resources>
-        </configuration>
-      </execution>
-    </executions>
-   </plugin> 
     </plugins>
   </build>
 
@@ -773,9 +655,7 @@
     <maven.build.timestamp.format>
       yyyy-MM-dd'T'HH:mm
     </maven.build.timestamp.format>
-    <buildDate>
-      ${maven.build.timestamp}
-    </buildDate>
+    <buildDate>${maven.build.timestamp}</buildDate>
     <compileSource>1.6</compileSource>
 
     <!-- Dependencies -->
@@ -814,6 +694,7 @@
     <findbugs.version>2.4.0</findbugs.version>
     <maven.site.version>2.0.1</maven.site.version>
     <javadoc.version>2.8.1</javadoc.version>
+    <maven.resources.plugin.version>2.5</maven.resources.plugin.version>
     
     <!-- General Packaging -->
     <package.prefix>/usr</package.prefix>
@@ -822,16 +703,12 @@
     <package.pid.dir>/var/run/hbase</package.pid.dir>
     <package.release>1</package.release>
     <final.name>${project.artifactId}-${project.version}</final.name>
-    <!-- Server jar naming properties -->
+    <site.basedir>${project.basedir}</site.basedir>
+    
+    <!-- Intraproject jar naming properties -->
     <!-- TODO this is pretty ugly, but works for the moment.
       Modules are pretty heavy-weight things, so doing this work isn't too bad. -->
-    <server.jar>hbase-server-${project.version}.jar</server.jar>
     <server.test.jar>hbase-server-${project.version}-tests.jar</server.test.jar>
-    <server.sources.jar>hbase-server-${project.version}-sources.jar</server.sources.jar>
-
-    <!-- Test inclusion patterns used by failsafe configuration -->
-    <unittest.include>**/Test*.java</unittest.include>
-    <integrationtest.include>**/IntegrationTest*.java</integrationtest.include>
 
     <surefire.version>2.12-TRUNK-HBASE-2</surefire.version>
     <surefire.provider>surefire-junit47</surefire.provider>
@@ -1304,7 +1181,7 @@
       </activation>
       <properties>
         <slf4j.version>1.6.1</slf4j.version>
-        <hadoop.version>2.0-SNAPSHOT</hadoop.version>
+        <hadoop.version>2.0.0-SNAPSHOT</hadoop.version>
       </properties>
       <dependencyManagement>
         <dependencies>
@@ -1489,18 +1366,7 @@
         <surefire.secondPartGroups>org.apache.hadoop.hbase.MediumTests,org.apache.hadoop.hbase.LargeTests</surefire.secondPartGroups>
       </properties>
     </profile>
-
-    <profile> <!-- Use it skip the surefire tests but no the failsafe tests -->
-      <id>skipSurefireTests</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-      </activation>
-      <properties>
-        <surefire.skipFirstPart>true</surefire.skipFirstPart>
-        <surefire.skipSecondPart>true</surefire.skipSecondPart>
-      </properties>
-    </profile>
-
+    
     <profile> <!-- Use it to launch tests locally-->
       <id>localTests</id>
       <activation>

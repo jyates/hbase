@@ -36,10 +36,73 @@
       <plugin>
         <groupId>com.agilejava.docbkx</groupId>
         <artifactId>docbkx-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>multipage</id>
+            <phase>pre-site</phase>
+            <configuration>
+              <xincludeSupported>true</xincludeSupported>
+              <navigShowtitles>true</navigShowtitles>
+              <chunkedOutput>true</chunkedOutput>
+              <useIdAsFilename>true</useIdAsFilename>
+              <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
+              <sectionAutolabel>true</sectionAutolabel>
+              <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
+              <targetDirectory>${parent.basedir}/target/site/</targetDirectory>
+              <htmlStylesheet>../css/freebsd_docbook.css</htmlStylesheet>
+              <htmlCustomization>${parent.basedir}/src/docbkx/customization.xsl</htmlCustomization>
+              <imgSrcPath>../images/</imgSrcPath>
+              <tocMaxDepth>2</tocMaxDepth>
+              <insertXrefPageNumber>yes</insertXrefPageNumber>
+            </configuration>
+            <goals>
+              <goal>generate-html</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>onepage</id>
+            <phase>pre-site</phase>
+            <configuration>
+              <xincludeSupported>true</xincludeSupported>
+              <useIdAsFilename>true</useIdAsFilename>
+              <sectionAutolabelMaxDepth>100</sectionAutolabelMaxDepth>
+              <sectionAutolabel>true</sectionAutolabel>
+              <sectionLabelIncludesComponentLabel>true</sectionLabelIncludesComponentLabel>
+              <targetDirectory>${parent.basedir}/target/site/</targetDirectory>
+              <htmlStylesheet>css/freebsd_docbook.css</htmlStylesheet>
+              <imgSrcPath>images/</imgSrcPath>
+              <tocMaxDepth>2</tocMaxDepth>
+              <insertXrefPageNumber>yes</insertXrefPageNumber>
+            </configuration>
+            <goals>
+              <goal>generate-html</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>xml-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>transform</goal>
+            </goals>
+            <phase>pre-site</phase>
+          </execution>
+        </executions>
+        <configuration>
+          <transformationSets>
+            <transformationSet>
+              <dir>${basedir}/hbase-server/src/main/resources/</dir>
+              <includes>
+                <include>hbase-default.xml</include>
+              </includes>
+              <stylesheet>${basedir}/src/main/xslt/configuration_to_docbook_section.xsl</stylesheet>
+              <outputDir>${basedir}/target/site/</outputDir>
+            </transformationSet>
+          </transformationSets>
+        </configuration>
       </plugin>
 
       <!-- Run with -Dmaven.test.skip.exec=true to build -tests.jar without running 
@@ -194,56 +257,6 @@
       </plugin>
       <!-- General plugins -->
       <plugin>
-        <groupId>org.eclipse.m2e</groupId>
-        <artifactId>lifecycle-mapping</artifactId>
-        <configuration>
-          <lifecycleMappingMetadata>
-            <pluginExecutions>
-              <pluginExecution>
-                <pluginExecutionFilter>
-                  <groupId>org.apache.avro</groupId>
-                  <artifactId>avro-maven-plugin</artifactId>
-                  <versionRange>[1.5.3,)</versionRange>
-                  <goals>
-                    <goal>protocol</goal>
-                    <goal>schema</goal>
-                  </goals>
-                </pluginExecutionFilter>
-                <action>
-                  <execute></execute>
-                </action>
-              </pluginExecution>
-              <pluginExecution>
-                <pluginExecutionFilter>
-                  <groupId>org.apache.maven.plugins</groupId>
-                  <artifactId>maven-antrun-plugin</artifactId>
-                  <versionRange>[1.3,)</versionRange>
-                  <goals>
-                    <goal>run</goal>
-                  </goals>
-                </pluginExecutionFilter>
-                <action>
-                  <execute></execute>
-                </action>
-              </pluginExecution>
-              <pluginExecution>
-                <pluginExecutionFilter>
-                  <groupId>org.jamon</groupId>
-                  <artifactId>jamon-maven-plugin</artifactId>
-                  <versionRange>[2.3.4,)</versionRange>
-                  <goals>
-                    <goal>translate</goal>
-                  </goals>
-                </pluginExecutionFilter>
-                <action>
-                  <execute></execute>
-                </action>
-              </pluginExecution>
-            </pluginExecutions>
-          </lifecycleMappingMetadata>
-        </configuration>
-      </plugin>
-      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-eclipse-plugin</artifactId>
         <configuration>
@@ -276,10 +289,6 @@
       <!-- Testing plugins -->
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-failsafe-plugin</artifactId>
       </plugin>
    </plugins>
    
