@@ -426,19 +426,6 @@
   </dependencies>
 
   <profiles>
-    <profile>
-      <id>rpm</id>
-      <build>
-        <plugins>
-          <plugin>
-            <artifactId>maven-javadoc-plugin</artifactId>
-            <configuration>
-              <docfilessubdirs>true</docfilessubdirs>
-            </configuration>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
 
     <!-- Special builds -->
      <profile>
@@ -589,13 +576,4 @@
       </build>
     </profile>
   </profiles>
-
-  <reporting>
-    <plugins>
-    <!-- Make sure the javadoc gets built -->
-      <plugin>
-        <artifactId>maven-javadoc-plugin</artifactId>
-      </plugin>
-    </plugins>
-  </reporting>
 </project>

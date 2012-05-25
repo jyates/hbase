@@ -6,12 +6,12 @@
         <groupId>org.apache.hbase</groupId>
         <version>0.95-SNAPSHOT</version>
     </parent>
-  <artifactId>hbase-documentation</artifactId>
+  <artifactId>hbase-site</artifactId>
   <packaging>pom</packaging>
   
-  <name>HBase - Documentation</name>
-  <description>Documentation for HBase. This holds the examples as well as 
-  all the javadoc and site files.</description>
+  <name>HBase - Site</name>
+  <description>HBase's website - overall site, reference guide, and javadocs come together here
+  </description>
 
   <dependencies>
     <dependency>
@@ -21,34 +21,7 @@
   </dependencies>
 
   <build>
-    <plugins> 
-       <!-- need to run the mvn process-resource phase before building the site -->
-       <plugin>
-        <artifactId>maven-resources-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>copy-sitedescriptor</id>
-            <!-- fetch site.{xml,vm} before creating site documentation -->
-            <phase>process-resources</phase>
-            <goals>
-              <goal>copy-resources</goal>
-            </goals>
-            <configuration>
-              <outputDirectory>${project.basedir}/src/site/</outputDirectory>
-              <resources>
-                <resource>
-                  <directory>${site.basedir}/src/site/</directory>
-                  <includes>
-                    <include>**/site.xml</include>
-                    <include>**/site.vm</include>
-                  </includes>
-                </resource>
-              </resources>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
+    <plugins>
       <!-- Website/Reference Guide building -->
       <plugin>
         <artifactId>maven-site-plugin</artifactId>
@@ -58,8 +31,8 @@
           <templateFile>src/site/site.vm</templateFile>
         </configuration>
       </plugin>
-      <!-- This has to come before the docbx plugin
-      so hbase-default.xml gets transformed properly -->
+      <!-- This has to come before the docbx plugin so hbase-default.xml gets transformed 
+        properly -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>xml-maven-plugin</artifactId>
@@ -134,5 +107,4 @@
       </plugin>
     </plugins>
   </build>
-
 </project>

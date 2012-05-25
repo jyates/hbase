@@ -55,7 +55,7 @@
   <modules>
     <module>hbase-assembly</module>
     <module>hbase-server</module>
-    <module>hbase-documentation</module>
+    <module>hbase-site</module>
   </modules>
 
   <scm>
@@ -733,7 +733,8 @@
     <package.pid.dir>/var/run/hbase</package.pid.dir>
     <package.release>1</package.release>
     <final.name>${project.artifactId}-${project.version}</final.name>
-    <javadoc.output.dir>${project.basedir}/hbase-documentation/target/site/apidocs</javadoc.output.dir>
+    <!-- Dependency on projects all being at hbase/{project} -->
+    <javadoc.output.dir>../hbase-documentation/target/site/apidocs</javadoc.output.dir>
     
     <!-- Intraproject jar naming properties -->
     <!-- TODO this is pretty ugly, but works for the moment.
@@ -1499,7 +1500,7 @@
   <distributionManagement>
     <!--Build and deploy the site with the below command
 
-      $ ~/bin/apache-maven-3.0.4/bin/mvn -X clean site:site site:deploy
+      $ ~/bin/apache-maven-3.0.4/bin/mvn -X clean package site:site site:deploy
 
       You may need a settings.xml file under you ~/.m2/ directory as
       described here: http://www.apache.org/dev/publishing-maven-artifacts.html
