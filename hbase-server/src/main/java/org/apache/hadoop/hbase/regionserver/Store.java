@@ -51,6 +51,7 @@ import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValue.KVComparator;
 import org.apache.hadoop.hbase.RemoteExceptionHandler;
+import org.apache.hadoop.hbase.backup.HFileDisposer;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
@@ -130,7 +131,7 @@ public class Store extends SchemaConfigured implements HeapSize {
   private final int blockingStoreFileCount;
   private volatile long storeSize = 0L;
   private volatile long totalUncompressedBytes = 0L;
-  private final Object flushLock = new Object();
+  final Object flushLock = new Object();
   final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
   private final boolean verifyBulkLoads;
 
@@ -1021,6 +1022,7 @@ public class Store extends SchemaConfigured implements HeapSize {
         this.compactor.compact(this, filesToCompact, cr.isMajor(), maxId);
       // Move the compaction into place.
       if (this.conf.getBoolean("hbase.hstore.compaction.complete", true)) {
+        LOG.debug("Completing compaction by moving files into place.");
         sf = completeCompaction(filesToCompact, writer);
         if (region.getCoprocessorHost() != null) {
           region.getCoprocessorHost().postCompact(this, sf);
@@ -1610,10 +1612,13 @@ public class Store extends SchemaConfigured implements HeapSize {
 
       // Tell observers that list of StoreFiles has changed.
       notifyChangedReadersObservers();
-      // Finally, delete old store files.
-      for (StoreFile hsf: compactedFiles) {
-        hsf.deleteReader();
-      }
+
+      // let the archive util decide if we should archive or delete the files
+      LOG.debug("Removing store files after compaction...");
+      HFileDisposer.disposeStoreFiles(this.region.getRegionServerServices(), this.region,
+        this.conf, this.family.getName(), compactedFiles);
+
+
     } catch (IOException e) {
       e = RemoteExceptionHandler.checkIOException(e);
       LOG.error("Failed replacing compacted files in " + this +

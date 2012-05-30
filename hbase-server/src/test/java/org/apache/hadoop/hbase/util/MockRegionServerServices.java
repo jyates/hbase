@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.backup.HFileArchiveMonitor;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.ipc.RpcServer;
@@ -35,7 +36,6 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionServerAccounting;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.KeeperException;
 
@@ -155,5 +155,11 @@ public class MockRegionServerServices implements RegionServerServices {
 
   public void setFileSystem(FileSystem hfs) {
     this.hfs = (HFileSystem)hfs;
+  }
+
+  @Override
+  public HFileArchiveMonitor getHFileArchiveMonitor() {
+    // TODO Implement getHFileArchiveManager
+    return null;
   }
 }

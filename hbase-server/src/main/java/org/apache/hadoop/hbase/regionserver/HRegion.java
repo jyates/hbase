@@ -84,6 +84,7 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
+import org.apache.hadoop.hbase.backup.HFileDisposer;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
@@ -948,16 +949,7 @@ public class HRegion implements HeapSize { // , Writable{
       writestate.writesEnabled = false;
       wasFlushing = writestate.flushing;
       LOG.debug("Closing " + this + ": disabling compactions & flushes");
-      while (writestate.compacting > 0 || writestate.flushing) {
-        LOG.debug("waiting for " + writestate.compacting + " compactions" +
-            (writestate.flushing ? " & cache flush" : "") +
-            " to complete for region " + this);
-        try {
-          writestate.wait();
-        } catch (InterruptedException iex) {
-          // continue
-        }
-      }
+      waitForFlushesAndCompactions();
     }
     // If we were not just flushing, is it worth doing a preflush...one
     // that will clear out of the bulk of the memstore before we put up
@@ -1029,6 +1021,25 @@ public class HRegion implements HeapSize { // , Writable{
       return result;
     } finally {
       lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Wait for all current flushes and compactions of the region to complete.
+   * <p>
+   * VISBILE FOR TESTING
+   */
+  void waitForFlushesAndCompactions() {
+    synchronized (writestate) {
+      while (writestate.compacting > 0 || writestate.flushing) {
+        LOG.debug("waiting for " + writestate.compacting + " compactions"
+            + (writestate.flushing ? " & cache flush" : "") + " to complete for region " + this);
+        try {
+          writestate.wait();
+        } catch (InterruptedException iex) {
+          // continue
+        }
+      }
     }
   }
 
@@ -4112,8 +4123,15 @@ public class HRegion implements HeapSize { // , Writable{
       LOG.debug("Files for new region");
       listPaths(fs, dstRegion.getRegionDir());
     }
-    deleteRegion(fs, a.getRegionDir());
-    deleteRegion(fs, b.getRegionDir());
+
+    // delete out the 'A' region
+    HFileDisposer.disposeRegion(fs, a.getRegionServerServices(),
+      FSUtils.getRootDir(a.getBaseConf()),
+      a.getTableDir(), a.getRegionDir());
+    // delete out the 'B' region
+    HFileDisposer.disposeRegion(fs, b.getRegionServerServices(),
+      FSUtils.getRootDir(b.getBaseConf()),
+      b.getTableDir(), b.getRegionDir());
 
     LOG.info("merge completed. New region is " + dstRegion);
 

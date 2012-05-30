@@ -950,7 +950,10 @@ public class HBaseTestingUtility {
    * @param tableName existing table
    */
   public void deleteTable(byte[] tableName) throws IOException {
-    getHBaseAdmin().disableTable(tableName);
+    try {
+      getHBaseAdmin().disableTable(tableName);
+    } catch (TableNotEnabledException e) {
+    }
     getHBaseAdmin().deleteTable(tableName);
   }
 

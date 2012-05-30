@@ -65,7 +65,7 @@ public class Reference implements Writable {
    * For split HStoreFiles, it specifies if the file covers the lower half or
    * the upper half of the key range
    */
-  static enum Range {
+  public static enum Range {
     /** HStoreFile contains upper half of key range */
     top,
     /** HStoreFile contains lower half of key range */
@@ -93,7 +93,7 @@ public class Reference implements Writable {
    * @param splitRow This is row we are splitting around.
    * @param fr
    */
-  Reference(final byte [] splitRow, final Range fr) {
+  public Reference(final byte[] splitRow, final Range fr) {
     this.splitkey = splitRow == null?  null: KeyValue.createFirstOnRow(splitRow).getKey();
     this.region = fr;
   }

@@ -80,6 +80,8 @@ import org.apache.hadoop.hbase.UnknownRowLockException;
 import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.YouAreDeadException;
 import org.apache.hadoop.hbase.ZNodeClearer;
+import org.apache.hadoop.hbase.backup.HFileArchiveMonitor;
+import org.apache.hadoop.hbase.backup.TableHFileArchiveTracker;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.MetaReader;
@@ -422,6 +424,8 @@ public class  HRegionServer implements ClientProtocol,
    */
   private MovedRegionsCleaner movedRegionsCleaner;
 
+  /** Store file archiving management */
+  TableHFileArchiveTracker hfileArchiveTracker;
 
   /**
    * Starts a HRegionServer at the default location
@@ -643,8 +647,9 @@ public class  HRegionServer implements ClientProtocol,
    * Finally put up a catalog tracker.
    * @throws IOException
    * @throws InterruptedException
+   * @throws KeeperException
    */
-  private void initializeZooKeeper() throws IOException, InterruptedException {
+  private void initializeZooKeeper() throws IOException, InterruptedException, KeeperException {
     // Open connection to zookeeper and set primary watcher
     this.zooKeeper = new ZooKeeperWatcher(conf, REGIONSERVER + ":" +
       this.isa.getPort(), this);
@@ -666,6 +671,9 @@ public class  HRegionServer implements ClientProtocol,
     this.catalogTracker = new CatalogTracker(this.zooKeeper, this.conf,
       this, this.conf.getInt("hbase.regionserver.catalog.timeout", Integer.MAX_VALUE));
     catalogTracker.start();
+
+    this.hfileArchiveTracker = TableHFileArchiveTracker.create(zooKeeper, this);
+    this.hfileArchiveTracker.start();
   }
 
   /**
@@ -3787,6 +3795,11 @@ public class  HRegionServer implements ClientProtocol,
     region.mutateRow(rm);
   }
 
+
+  @Override
+  public HFileArchiveMonitor getHFileArchiveMonitor() {
+    return this.hfileArchiveTracker;
+  }
 
   // This map will containsall the regions that we closed for a move.
   //  We add the time it was moved as we don't want to keep too old information
