@@ -879,4 +879,9 @@
       table directory, but instead are just one level lower (under
       table/.archive/... rather than table/...). Currently only applies to HFiles.</description>
   </property>
+  <property>
+    <name>zookeeper.zknode.snapshot</name>
+    <description>snapshot</description>
+    <description>ZNode under which all the snapshot info should be stored in ZooKeeper</description>
+  </property>
 </configuration>

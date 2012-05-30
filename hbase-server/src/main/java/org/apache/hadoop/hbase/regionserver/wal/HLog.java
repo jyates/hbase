@@ -266,6 +266,15 @@ public class HLog implements Syncable {
     }
   }
 
+  private static byte[] START_SNAPSHOT;
+  static {
+    try {
+      START_SNAPSHOT = "HBASE::SNAPSHOT".getBytes(HConstants.UTF8_ENCODING);
+    } catch (UnsupportedEncodingException e) {
+      assert (false);
+    }
+  }
+
   public static class Metric {
     public long min = Long.MAX_VALUE;
     public long max = 0;
@@ -1055,7 +1064,7 @@ public class HLog implements Syncable {
    * @param htd
    * @throws IOException
    */
-  public void append(HRegionInfo info, byte [] tableName, WALEdit edits,
+  public void append(HRegionInfo info, byte[] tableName, WALEdit edits,
     final long now, HTableDescriptor htd)
   throws IOException {
     append(info, tableName, edits, HConstants.DEFAULT_CLUSTER_ID, now, htd);
@@ -1087,7 +1096,7 @@ public class HLog implements Syncable {
    * @return txid of this transaction
    * @throws IOException
    */
-  private long append(HRegionInfo info, byte [] tableName, WALEdit edits, UUID clusterId,
+  private long append(HRegionInfo info, byte[] tableName, WALEdit edits, UUID clusterId,
       final long now, HTableDescriptor htd, boolean doSync)
     throws IOException {
       if (edits.isEmpty()) return this.unflushedEntries.get();;
@@ -1157,7 +1166,7 @@ public class HLog implements Syncable {
    * @return txid of this transaction
    * @throws IOException
    */
-  public long append(HRegionInfo info, byte [] tableName, WALEdit edits, 
+  public long append(HRegionInfo info, byte[] tableName, WALEdit edits,
     UUID clusterId, final long now, HTableDescriptor htd)
     throws IOException {
     return append(info, tableName, edits, clusterId, now, htd, true);
@@ -1530,7 +1539,6 @@ public class HLog implements Syncable {
     return obtainSeqNum();
   }
 
-
   /**
    * Complete the cache flush
    *
@@ -1610,6 +1618,17 @@ public class HLog implements Syncable {
       }
     }
     this.cacheFlushLock.unlock();
+  }
+
+  // TODO update HLog implementation so we lock the lock while doing the
+  // snapshot, similar to the cache flushing
+
+  public static WALEdit getSnapshotWALEdit() {
+    KeyValue kv = new KeyValue(METAROW, METAFAMILY, null, System.currentTimeMillis(),
+        START_SNAPSHOT);
+    WALEdit e = new WALEdit();
+    e.add(kv);
+    return e;
   }
 
   /**
@@ -1730,7 +1749,7 @@ public class HLog implements Syncable {
    * 
    * @return dir
    */
-  protected Path getDir() {
+  public Path getDir() {
     return dir;
   }
   

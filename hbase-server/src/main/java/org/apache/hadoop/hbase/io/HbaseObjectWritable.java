@@ -90,6 +90,7 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionOpeningState;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ProtoUtil;
 import org.apache.hadoop.io.MapWritable;
@@ -188,6 +189,9 @@ public class HbaseObjectWritable implements Writable, WritableWithSize, Configur
     addToMap(HServerInfo.class, code++);
     addToMap(HTableDescriptor.class, code++);
     addToMap(MapWritable.class, code++);
+    // HBASE-50
+    addToMap(SnapshotDescriptor.class, code++);
+    addToMap(SnapshotDescriptor[].class, code++);
 
     //
     // HBASE-880

@@ -47,6 +47,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Chore;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.DeserializationException;
@@ -59,9 +60,11 @@ import org.apache.hadoop.hbase.NotAllMetaRegionsOnlineException;
 import org.apache.hadoop.hbase.PleaseHoldException;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.SnapshotExistsException;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableNotDisabledException;
 import org.apache.hadoop.hbase.TableNotFoundException;
+import org.apache.hadoop.hbase.TablePartiallyOpenException;
 import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.backup.TableHFileArchiveTracker;
@@ -94,12 +97,18 @@ import org.apache.hadoop.hbase.master.handler.TableDeleteFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableEventHandler;
 import org.apache.hadoop.hbase.master.handler.TableModifyFamilyHandler;
 import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
+import org.apache.hadoop.hbase.master.snapshot.DeleteSnapshot;
+import org.apache.hadoop.hbase.master.snapshot.SnapshotManager;
+import org.apache.hadoop.hbase.master.snapshot.SnapshotSentinel;
 import org.apache.hadoop.hbase.monitoring.MemoryBoundedLogMessageBuffer;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.replication.regionserver.Replication;
 import org.apache.hadoop.hbase.security.User;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
 import org.apache.hadoop.hbase.util.HasThread;
 import org.apache.hadoop.hbase.util.InfoServer;
@@ -254,6 +263,10 @@ Server {
 
   /** time interval for emitting metrics values */
   private final int msgInterval;
+
+  // monitor for snapshot of hbase tables
+  private SnapshotManager snapshotManager;
+
   /**
    * MX Bean for MasterInfo
    */
@@ -483,6 +496,13 @@ Server {
         ", sessionid=0x" +
         Long.toHexString(this.zooKeeper.getRecoverableZooKeeper().getSessionId()) +
         ", cluster-up flag was=" + wasUp);
+
+    // create the snapshot monitor
+    // TODO should this be config based?
+    // TODO do we really need a full reference to the master or can we pull out
+    // an interface? MasterFileSystem seems to mostly what it needs
+    this.snapshotManager = new SnapshotManager(this, zooKeeper);
+    zooKeeper.registerListener(snapshotManager.getController());
   }
 
   /**
@@ -518,6 +538,10 @@ Server {
       }
       stopSleeper.sleep();
     }
+  }
+
+  SnapshotManager getSnapshotMonitor() {
+    return this.snapshotManager;
   }
 
   /**
@@ -1025,6 +1049,125 @@ Server {
     // Do it out here in its own little method so can fake an address when
     // mocking up in tests.
     return HBaseServer.getRemoteIp();
+  }
+
+  @Override
+  public byte[] snapshot(final byte[] tableName) throws IOException {
+    // the snapshot name is the current time as a string (so it is valid, as
+    // opposed to just a long)
+    byte[] snapshotName = Bytes.toBytes(Long.toString(EnvironmentEdgeManager.currentTimeMillis()));
+    snapshot(snapshotName, tableName);
+    return snapshotName;
+  }
+
+  @Override
+  public void snapshot(final byte[] snapshotName, final byte[] tableName)
+    throws IOException {
+    // first create the snapshot description and check if we can make it
+    SnapshotDescriptor hsd = new SnapshotDescriptor(snapshotName, tableName);
+    Path snapshotDir = SnapshotDescriptor.getSnapshotDir(hsd.getSnapshotName(), this
+        .getMasterFileSystem().getRootDir());
+
+    if (this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
+      throw new SnapshotExistsException("Snapshot " + hsd.getSnapshotNameAsString()
+          + " already exists.");
+    }
+
+    try {
+      // then check to see how we should do the snapshot - online or offline
+      // if the table is online, then have the RS handle the transition
+
+      if (this.assignmentManager.getZKTable().isEnabledTable(
+          hsd.getTableNameAsString())) {
+        // get the snapshot monitor
+        SnapshotSentinel sentinel = snapshotManager.startSnapshot(hsd);
+        // and wait for the snapshot to finish
+        sentinel.waitToFinish();
+
+        // since it finished, we need to then move the snapshot directory out of
+        // .tmp
+        Path completedSnapshot = getCompletedSnapshotDirectory(snapshotDir);
+        if (completedSnapshot == null) {
+          throw new SnapshotCreationException(
+              "Could not complete snapshot because directory structure was compromised "
+                  + "- expected snapshot to be build in a .tmp directory, but it wasn't! "
+                  + "Instead, it was build it:" + snapshotDir);
+        }
+        // finally move the snapshot to the completed location
+        this.getMasterFileSystem().getFileSystem().rename(snapshotDir, completedSnapshot);
+        return;
+      }
+
+      else if (this.assignmentManager.getZKTable().isDisabledTable(hsd.getTableNameAsString())) {
+        // For disabled table, snapshot is created by the master
+        // TODO possible failure situation we should check for on startup
+        // TODO this needs to be implemented correctly
+        // new TableSnapshot(this, hsd).process();
+      } else {
+        throw new TablePartiallyOpenException(tableName);
+      }
+      LOG.info("Snapshot is created successfully: " + hsd);
+    } catch (SnapshotCreationException e) {
+      // if we fail to create the snapshot, just abort it
+      LOG.error("Failed to create snapshot:" + e);
+      snapshotManager.abort(hsd);
+    }
+  }
+
+  private Path getCompletedSnapshotDirectory(Path snapshotDir) {
+    Path parent = snapshotDir.getParent();
+    if (!parent.getName().equals(".tmp")) return null;
+
+    Path snapshots = parent.getParent();
+    return new Path(snapshots, snapshotDir.getName());
+  }
+
+  /**
+   * List the currently available/stored snapshots
+   */
+  public SnapshotDescriptor[] listSnapshots() throws IOException{
+    List<SnapshotDescriptor> snapshotList =
+      new ArrayList<SnapshotDescriptor>();
+    // TODO implement this method
+    /*
+     * Path snapshotRoot = SnapshotDescriptor.getSnapshotRootDir(rootdir);
+     * FileStatus[] snapshots = fs.listStatus(snapshotRoot, new
+     * FSUtils.DirFilter(fs)); for (FileStatus snapshot : snapshots) { Path info
+     * = new Path(snapshot.getPath(), SnapshotDescriptor.SNAPSHOTINFO_FILE);
+     * FSDataInputStream in = null; try { in = fs.open(info); SnapshotDescriptor
+     * hsd = new SnapshotDescriptor(); hsd.readFields(in);
+     * snapshotList.add(hsd); } catch (IOException e) {
+     * LOG.warn("Crashed snapshot " + snapshot.getPath().getName()); // TODO
+     * clean up the snapshot? } finally { if (in != null) { in.close(); } } }
+     * return snapshotList.toArray(new SnapshotDescriptor[snapshotList.size()]);
+     */
+    return snapshotList.toArray(new SnapshotDescriptor[0]);
+  }
+
+  public void restoreSnapshot(final byte[] snapshotName) throws IOException {
+    // TODO implement this method
+    // potentially dangerous as we will need to toss out the current table
+    /*
+     * SnapshotOperation op = new RestoreSnapshot(this, snapshotName); try {
+     * op.process(); } catch (IOException e) {
+     * LOG.error("Failed to restore snapshot:," + op.getSnapshotDescriptor(),
+     * e);
+     * 
+     * // clean up the half-restored table in META and file system byte[]
+     * tableName = op.getSnapshotDescriptor().getTableName();
+     * LOG.debug("Cleaning up restored table: " + Bytes.toString(tableName));
+     * this.deleteTable(tableName);
+     * 
+     * throw e; }
+     */
+  }
+
+  /**
+   * Delete the named snapshot
+   */
+  public void deleteSnapshot(final byte[] snapshotName) throws IOException {
+    LOG.debug("Deleting snapshot: " + Bytes.toString(snapshotName));
+    new DeleteSnapshot(this, snapshotName).process();
   }
 
   /**

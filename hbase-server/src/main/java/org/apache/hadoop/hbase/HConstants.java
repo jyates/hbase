@@ -238,6 +238,15 @@ public final class HConstants {
   public static final String HREGION_MAX_FILESIZE =
       "hbase.hregion.max.filesize";
 
+  /** Used to construct the name of the snapshot directory */
+  public static final String SNAPSHOT_DIR = ".snapshot";
+
+  /**
+   * Used to construct the name of the archive directory for HFiles
+   * which are still referenced by snapshots.
+   */
+  public static final String ARCHIVE_DIR = ".archive";
+
   /** Default maximum file size */
   public static final long DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024L;
 
@@ -340,6 +349,15 @@ public final class HConstants {
    * meta is up-to-date.
    */
   public static final short META_VERSION = 0;
+
+  /** The last checking time of reference meta row qualifier */
+  public static final byte [] LASTCHECKTIME_QUALIFIER  = Bytes.toBytes("lastCheckTime");
+
+  /** Prefix added to the row key of reference meta for snapshot region */
+  public static final byte [] SNAPSHOT_ROW_PREFIX = Bytes.toBytes(".SNAPSHOT.");
+
+  /** The reference count information family */
+  public static final byte[] SNAPSHOT_FAMILY = Bytes.toBytes("snapshot");
 
   // Other constants
 
@@ -676,6 +694,18 @@ public final class HConstants {
   /** Configuration key for the directory to backup HFiles for a table */
   public static final String HFILE_ARCHIVE_DIRECTORY = "hbase.table.archive.directory";
   public static final String HFILE_ARCHIVE_ZNODE_PARENT = "hfilearchive";
+
+  /** Conf key for number of request threads to start snapshots on regionservers */
+  public static final String SNAPSHOT_REQUEST_THREADS = "hbase.region.snapshot.pool.threads";
+  /** Conf key for max time to keep threads in snapshot request pool waiting */
+  public static final String SNAPSHOT_THEAD_POOL_KEEP_ALIVE_SECONDS = "hbase.region.snapshot.pool.keepalive";
+  /** Conf key for the max time to wait for a snapshot to complete on a server */
+  public static final String SNAPSHOT_TIMEOUT_KEY = "hbase.region.snapshot.timeout";
+  /**
+   * Conf key for frequency the snapshot handler should check to see if its
+   * hregions have finished snapshotting
+   */
+  public static final String SNAPSHOT_REQUEST_WAKE_FREQUENCY_KEY = "hbase.region.snapshot.wakefrequency";
 
   private HConstants() {
     // Can't be instantiated with this ctor.

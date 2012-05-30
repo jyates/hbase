@@ -339,8 +339,16 @@ public class Store extends SchemaConfigured implements HeapSize {
    */
   public static Path getStoreHomedir(final Path tabledir,
       final String encodedName, final byte [] family) {
-    return new Path(tabledir, new Path(encodedName,
-      new Path(Bytes.toString(family))));
+    return getStoreHomedir(new Path(tabledir, encodedName), family);
+  }
+
+  /**
+   * @param parentRegionDirectory directory for the parent region
+   * @param family family name of this store
+   * @return Path to the family/Store home directory
+   */
+  public static Path getStoreHomedir(final Path parentRegionDirectory, final byte[] family){
+    return new Path(parentRegionDirectory, new Path(Bytes.toString(family)));
   }
 
   /**
@@ -1614,11 +1622,10 @@ public class Store extends SchemaConfigured implements HeapSize {
       notifyChangedReadersObservers();
 
       // let the archive util decide if we should archive or delete the files
+      //TODO add snapshot support for the regex of the files that should be deleted (visitor pattern?)
       LOG.debug("Removing store files after compaction...");
       HFileDisposer.disposeStoreFiles(this.region.getRegionServerServices(), this.region,
         this.conf, this.family.getName(), compactedFiles);
-
-
     } catch (IOException e) {
       e = RemoteExceptionHandler.checkIOException(e);
       LOG.error("Failed replacing compacted files in " + this +

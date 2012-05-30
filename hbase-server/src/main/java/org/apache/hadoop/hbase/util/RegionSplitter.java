@@ -57,8 +57,8 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.NoServerForRegionException;
+import org.apache.hadoop.hbase.io.Reference;
 import org.apache.hadoop.hbase.regionserver.Store;
-import org.apache.hadoop.hbase.regionserver.StoreFile;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -675,7 +675,7 @@ public class RegionSplitter {
                 c.getName());
             if (fs.exists(cfDir)) {
               for (FileStatus file : fs.listStatus(cfDir)) {
-                refFound |= StoreFile.isReference(file.getPath());
+                refFound |= Reference.isReference(file.getPath());
                 if (refFound)
                   break;
               }

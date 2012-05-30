@@ -1,0 +1,3 @@
+Snapshots
+
+1) add org.apache.hadoop.hbase.master.snapshot.SnapshotLogCleaner to hmbase.master.logcleaner.plugins

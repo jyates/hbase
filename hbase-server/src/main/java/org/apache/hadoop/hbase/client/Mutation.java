@@ -35,7 +35,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
-public abstract class Mutation extends OperationWithAttributes implements Row {
+public abstract class Mutation extends ClusterOperation implements Row {
   // Attribute used in Mutations to indicate the originating cluster.
   private static final String CLUSTER_ID_ATTR = "_c.id_";
 

@@ -29,6 +29,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
@@ -84,6 +86,7 @@ import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.UnassignRegionReq
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ShutdownRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.StopMasterRequest;
 import org.apache.hadoop.hbase.regionserver.wal.FailedLogCloseException;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Addressing;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
@@ -2149,6 +2152,107 @@ public class HBaseAdmin implements Abortable, Closeable {
       if (Collections.binarySearch(serverNames, expectedServer) < 0) return false;
     }
     return true;
+  }
+  
+  /**
+   * Create a snapshot for the given table.
+   * @param table name of the table to snapshot
+   * @return name of the snapshot taken.
+   */
+  public String snapshot(final String table) throws IOException {
+    return Bytes.toString(snapshot(Bytes.toBytes(table)));
+  }
+
+  public byte[] snapshot(final byte[] tablename) throws IOException {
+    //check to make sure looking at valid table
+    HTableDescriptor.isLegalTableName(tablename);
+    // make sure we enable hfile backup on the table first
+    enableHFileBackup(tablename);
+    // start the snapshot and get the name from the master
+    return execute(new MasterCallable<byte[]>() {
+      @Override
+      public byte[] call() throws IOException {
+        return master.snapshot(tablename);
+      }
+    });
+  }
+
+  /**
+   * Create a snapshot for the given table.
+   * 
+   * @param snapshotName name of the snapshot to be created
+   * @param tableName name of the table for which snapshot is created
+   * @throws IOException if a remote or network exception occurs
+   */
+  public void snapshot(final byte[] snapshotName, final byte[] tableName)
+      throws IOException {
+    // check to make sure we are looking at a valid table
+    HTableDescriptor.isLegalTableName(tableName);
+    // snapshotName has the same rule as table name
+    HTableDescriptor.isLegalTableName(snapshotName);
+    // make sure we enable hfile backup on the table first
+    enableHFileBackup(tableName);
+    // run the snapshot on the master
+    execute(new MasterCallable<Void>() {
+      @Override
+      public Void call() throws IOException {
+        master.snapshot(snapshotName, tableName);
+        return null;
+      }
+    });
+  }
+
+  /**
+   * List existing snapshots.
+   * 
+   * @return a list of snapshot descriptor for existing snapshots
+   * @throws IOException
+   */
+  public SnapshotDescriptor[] listSnapshots() throws IOException {
+    return execute(new MasterCallable<SnapshotDescriptor[]>() {
+      @Override
+      public SnapshotDescriptor[] call() throws IOException {
+        return master.listSnapshots();
+      }
+    });
+  }
+
+  /**
+   * Restore the table from a snapshot.
+   * 
+   * @param snapshotName name of the snapshot
+   * @throws IOException if a remote or network exception occurs
+   */
+  public void restoreSnapshot(final byte[] snapshotName) throws IOException {
+    // make sure the snapshot is possibly valid
+    HTableDescriptor.isLegalTableName(snapshotName);
+    // do the restore
+    execute(new MasterCallable<Void>() {
+      @Override
+      public Void call() throws IOException {
+        master.restoreSnapshot(snapshotName);
+        return null;
+      }
+    });
+  }
+
+   /**
+   * Delete an existing snapshot.
+   * 
+   * @param snapshotName name of the snapshot
+   * @throws IOException if a remote or network exception occurs
+   */
+  public void deleteSnapshot(final byte[] snapshotName) throws IOException {
+    // make sure the snapshot is possibly valid
+    HTableDescriptor.isLegalTableName(snapshotName);
+    // do the delete
+    execute(new MasterCallable<Void>() {
+      @Override
+      public Void call() throws IOException {
+        master.deleteSnapshot(snapshotName);
+        return null;
+      }
+    });
   }
 
   /**

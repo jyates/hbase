@@ -26,6 +26,7 @@ import java.util.TreeMap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
@@ -513,6 +514,12 @@ class MockRegionServer implements AdminProtocol, ClientProtocol, RegionServerSer
   @Override
   public HFileArchiveMonitor getHFileArchiveMonitor() {
     // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Path getRootDir() {
+    // TODO Implement getRootDir
     return null;
   }
 }

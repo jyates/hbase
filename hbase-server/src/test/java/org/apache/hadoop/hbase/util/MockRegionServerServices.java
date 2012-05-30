@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.backup.HFileArchiveMonitor;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
@@ -159,7 +160,11 @@ public class MockRegionServerServices implements RegionServerServices {
 
   @Override
   public HFileArchiveMonitor getHFileArchiveMonitor() {
-    // TODO Implement getHFileArchiveManager
+    return null;
+  }
+
+  @Override
+  public Path getRootDir() {
     return null;
   }
 }

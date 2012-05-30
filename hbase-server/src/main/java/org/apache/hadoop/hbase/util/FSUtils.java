@@ -1131,4 +1131,31 @@ public abstract class FSUtils {
   public static boolean isExists(final FileSystem fs, final Path path) throws IOException {
     return fs.exists(path);
   }
+
+  /**
+   * Get all files under the passed <code>dir</code>
+   * @param fs FileSystem
+   * @param dir path to the directory
+   * @param recursive whether get files recursively
+   * @return a list of files under this directory
+   * @throws IOException if listing all files fails
+   */
+  public static List<Path> listAllFiles(final FileSystem fs, final Path dir, final boolean recursive)
+      throws IOException {
+    List<Path> fileList = new ArrayList<Path>();
+    if (!fs.exists(dir)) {
+      return fileList;
+    }
+    FileStatus[] files = fs.listStatus(dir);
+    for (FileStatus file : files) {
+      if (file.isDir()) {
+        if (recursive) {
+          fileList.addAll(listAllFiles(fs, file.getPath(), true));
+        }
+      } else {
+        fileList.add(file.getPath());
+      }
+    }
+    return fileList;
+  }
 }

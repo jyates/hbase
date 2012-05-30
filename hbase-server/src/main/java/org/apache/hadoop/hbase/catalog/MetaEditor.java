@@ -25,15 +25,18 @@ import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.NotAllMetaRegionsOnlineException;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.PairOfSameType;
 import org.apache.hadoop.hbase.util.Writables;
 
@@ -49,11 +52,14 @@ public class MetaEditor {
   // Connection.
   private static final Log LOG = LogFactory.getLog(MetaEditor.class);
 
-  private static Put makePutFromRegionInfo(HRegionInfo regionInfo)
-  throws IOException {
-    Put put = new Put(regionInfo.getRegionName());
+  private static byte[] getMetaRowKey(HRegionInfo regionInfo) {
+    return regionInfo.getRegionName();
+  }
+
+  private static Put makeMetaTablePutForRegionInfo(HRegionInfo regionInfo) throws IOException {
+    Put put = new Put(getMetaRowKey(regionInfo));
     put.add(HConstants.CATALOG_FAMILY, HConstants.REGIONINFO_QUALIFIER,
-        Writables.getBytes(regionInfo));
+      Writables.getBytes(regionInfo));
     return put;
   }
 
@@ -141,10 +147,9 @@ public class MetaEditor {
    * @param regionInfo region information
    * @throws IOException if problem connecting or updating meta
    */
-  public static void addRegionToMeta(CatalogTracker catalogTracker,
-      HRegionInfo regionInfo)
-  throws IOException {
-    putToMetaTable(catalogTracker, makePutFromRegionInfo(regionInfo));
+  public static void addRegionToMeta(CatalogTracker catalogTracker, HRegionInfo regionInfo)
+      throws IOException {
+    putToMetaTable(catalogTracker, makeMetaTablePutForRegionInfo(regionInfo));
     LOG.info("Added region " + regionInfo.getRegionNameAsString() + " to META");
   }
 
@@ -154,12 +159,11 @@ public class MetaEditor {
    * @param regionInfos region information list
    * @throws IOException if problem connecting or updating meta
    */
-  public static void addRegionsToMeta(CatalogTracker catalogTracker,
-      List<HRegionInfo> regionInfos)
-  throws IOException {
+  public static void addRegionsToMeta(CatalogTracker catalogTracker, List<HRegionInfo> regionInfos)
+      throws IOException {
     List<Put> puts = new ArrayList<Put>();
     for (HRegionInfo regionInfo : regionInfos) {
-      puts.add(makePutFromRegionInfo(regionInfo));
+      puts.add(makeMetaTablePutForRegionInfo(regionInfo));
     }
     putsToMetaTable(catalogTracker, puts);
     LOG.info("Added " + puts.size() + " regions in META");
@@ -332,5 +336,71 @@ public class MetaEditor {
     p.add(HConstants.CATALOG_FAMILY, HConstants.STARTCODE_QUALIFIER,
       Bytes.toBytes(sn.getStartcode()));
     return p;
+  }
+
+  /**
+   * Create an increment that acts on a cf in the region's row in .META.
+   * @param regionInfo region to update
+   * @return {@link Increment} that can be used to update a value for region in
+   *         the meta table
+   */
+  static Increment makeIncrementForRegion(HRegionInfo regionInfo) {
+    return new Increment(getMetaRowKey(regionInfo));
+  }
+
+  /**
+   * Create an increment that acts on a cf in the server's row in .META.
+   * @param server name of the server where the file resides
+   * @return {@link Increment} that can be used to update a value for region in
+   *         the meta table
+   */
+  static Increment makeIncrementForServer(ServerName server) {
+    return new Increment(Bytes.toBytes(server.getServerName()));
+  }
+
+  /**
+   * Update the reference count for a file in .META. under a given region
+   * @param ct
+   * @param info region that is hosting the file
+   * @param srcfile file to increment a reference
+   * @throws IOException on failure
+   */
+  public static void incrementFileReferenceCountForRegion(final CatalogTracker ct,
+      final HRegionInfo info, final Path srcfile) throws IOException {
+    Increment inc = makeIncrementForRegion(info);
+    inc.addColumn(HConstants.SNAPSHOT_FAMILY, Bytes.toBytes(FSUtils.getPath(srcfile)), 1);
+    incrementToMetaTable(ct, inc);
+  }
+
+  /**
+   * Update the reference count for a file in .META. under a given region
+   * @param ct
+   * @param server server that is hosting the file
+   * @param srcfile file to increment a reference
+   * @throws IOException on failure
+   */
+  public static void incrementFileReferenceCountForServer(final CatalogTracker ct,
+      final ServerName server, final Path srcfile) throws IOException {
+    Increment inc = makeIncrementForServer(server);
+    inc.addColumn(HConstants.SNAPSHOT_FAMILY, Bytes.toBytes(FSUtils.getPath(srcfile)), 1);
+    incrementToMetaTable(ct, inc);
+  }
+
+  /**
+   * Increment a row in the Meta table
+   */
+  private static void incrementToMetaTable(CatalogTracker ct, Increment inc) throws IOException {
+    increment(MetaReader.getMetaHTable(ct), inc);
+  }
+
+  /**
+   * Apply an increment to a table
+   */
+  private static void increment(HTable t, Increment inc) throws IOException {
+    try {
+      t.increment(inc);
+    } finally {
+      t.close();
+    }
   }
 }

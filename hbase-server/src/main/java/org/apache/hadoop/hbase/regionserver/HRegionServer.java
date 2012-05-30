@@ -183,6 +183,7 @@ import org.apache.hadoop.hbase.regionserver.metrics.RegionServerDynamicMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.RegionServerMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.SchemaMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.SchemaMetrics.StoreMetricType;
+import org.apache.hadoop.hbase.regionserver.snapshot.RegionServerSnapshotHandler;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.WALActionsListener;
 import org.apache.hadoop.hbase.security.User;
@@ -426,6 +427,9 @@ public class  HRegionServer implements ClientProtocol,
 
   /** Store file archiving management */
   TableHFileArchiveTracker hfileArchiveTracker;
+
+  /** Handle all the snapshot requests to this server */
+  RegionServerSnapshotHandler snapshotHandler;
 
   /**
    * Starts a HRegionServer at the default location
@@ -674,6 +678,9 @@ public class  HRegionServer implements ClientProtocol,
 
     this.hfileArchiveTracker = TableHFileArchiveTracker.create(zooKeeper, this);
     this.hfileArchiveTracker.start();
+
+    // watch for snapshots
+    this.snapshotHandler = new RegionServerSnapshotHandler(conf, zooKeeper, this);
   }
 
   /**
@@ -754,6 +761,8 @@ public class  HRegionServer implements ClientProtocol,
         }
       }
       registerMBean();
+      // start the snapshot handler, since the parent is ready to go.
+      this.snapshotHandler.start();
 
       // We registered with the Master.  Go into run mode.
       long lastMsg = 0;
@@ -870,6 +879,13 @@ public class  HRegionServer implements ClientProtocol,
     } catch (KeeperException e) {
       LOG.warn("Failed deleting my ephemeral node", e);
     }
+
+    try {
+      if (snapshotHandler != null) snapshotHandler.close();
+    } catch (IOException e) {
+      LOG.warn("Failed to close snapshot handler cleanly", e);
+    }
+
     // We may have failed to delete the znode at the previous step, but
     //  we delete the file anyway: a second attempt to delete the znode is likely to fail again.
     ZNodeClearer.deleteMyEphemeralNodeOnDisk();
@@ -2119,7 +2135,7 @@ public class  HRegionServer implements ClientProtocol,
   /**
    * @return Return the rootDir.
    */
-  protected Path getRootDir() {
+  public Path getRootDir() {
     return rootDir;
   }
 

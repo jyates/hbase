@@ -44,8 +44,8 @@ import org.apache.hadoop.hbase.backup.HFileDisposer;
 import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.MetaReader;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.io.Reference;
 import org.apache.hadoop.hbase.regionserver.Store;
-import org.apache.hadoop.hbase.regionserver.StoreFile;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.Pair;
@@ -307,7 +307,7 @@ class CatalogJanitor extends Chore {
       FileStatus [] ps = FSUtils.listStatus(fs, p,
           new PathFilter () {
             public boolean accept(Path path) {
-              return StoreFile.isReference(path);
+              return Reference.isReference(path);
             }
           }
       );

@@ -85,6 +85,8 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.backup.HFileDisposer;
+import org.apache.hadoop.hbase.catalog.CatalogTracker;
+import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
@@ -117,9 +119,14 @@ import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
 import org.apache.hadoop.hbase.regionserver.metrics.OperationMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.RegionMetricsStorage;
 import org.apache.hadoop.hbase.regionserver.metrics.SchemaMetrics;
+import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotUtils;
+import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotStatus;
+import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureStatus;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.CancelableProgressable;
 import org.apache.hadoop.hbase.util.ClassSize;
@@ -291,6 +298,8 @@ public class HRegion implements HeapSize { // , Writable{
     volatile boolean writesEnabled = true;
     // Set if region is read-only
     volatile boolean readOnly = false;
+    // Set if snapshot is running
+    volatile boolean snapshot = false;
 
     /**
      * Set flags that make this region read-only.
@@ -733,12 +742,22 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   /*
-   * Write out an info file under the region directory.  Useful recovering
+   * Write out an info file under the region directory. Useful recovering
    * mangled regions.
    * @throws IOException
    */
   private void checkRegioninfoOnFilesystem() throws IOException {
-    Path regioninfoPath = new Path(this.regiondir, REGIONINFO_FILE);
+    checkRegioninfoOnFilesystem(this.regiondir);
+  }
+
+  /**
+   * Write out an info file under the region directory. Useful recovering
+   * mangled regions.
+   * @param regiondir directory underwhich to write out the region info
+   * @throws IOException
+   */
+  private void checkRegioninfoOnFilesystem(Path regiondir) throws IOException {
+    Path regioninfoPath = new Path(regiondir, REGIONINFO_FILE);
     // Compose the content of the file so we can compare to length in filesystem.  If not same,
     // rewrite it (it may have been written in the old format using Writables instead of pb).  The
     // pb version is much shorter -- we write now w/o the toString version -- so checking length
@@ -760,7 +779,7 @@ public class HRegion implements HeapSize { // , Writable{
     FsPermission perms = FSUtils.getFilePermissions(fs, conf, HConstants.DATA_FILE_UMASK_KEY);
 
     // And then create the file
-    Path tmpPath = new Path(getTmpDir(), REGIONINFO_FILE);
+    Path tmpPath = new Path(getTmpDir(regiondir), REGIONINFO_FILE);
 
     // If datanode crashes or if the RS goes down just before the close is called while trying to
     // close the created regioninfo file in the .tmp directory then on next
@@ -1209,7 +1228,11 @@ public class HRegion implements HeapSize { // , Writable{
    * will have its contents removed when the region is reopened.
    */
   Path getTmpDir() {
-    return new Path(getRegionDir(), REGION_TEMP_SUBDIR);
+    return getTmpDir(getRegionDir());
+  }
+
+  Path getTmpDir(Path regionDir) {
+    return new Path(regionDir, REGION_TEMP_SUBDIR);
   }
 
   void triggerMajorCompaction() {
@@ -2443,6 +2466,165 @@ public class HRegion implements HeapSize { // , Writable{
     }
   }
 
+  /**
+   * Start snapshot on this region.
+   * <p>
+   * Periodically checks to make sure the region hasn't been notified of a
+   * failure in the global snapshot process. If it has, it bails out.
+   * <p>
+   * WriteState.snapshot is set to true and WriteState.writesEnabled is set to
+   * false so region compaction and flush is disabled during the process of
+   * snapshot.
+   * @param desc {@link SnapshotDescriptor} describing the snapshot to take
+   * @param monitor to update/monitor progress on the snapshot
+   * @param failureStatus status of the overall snapshot
+   * @para desc
+   * @throws IOException if the snapshot could not be made
+   */
+  public void startSnapshot(SnapshotDescriptor desc, RegionSnapshotStatus monitor,
+      SnapshotFailureStatus failureStatus) throws IOException {
+
+    LOG.debug("Snapshot is started on " + this);
+    MonitoredTask status = TaskMonitor.get().createStatus("Snapshotting " + this);
+
+    // periodically, check for snapshot failures, so we don't waste extra work
+    // for the snapshot and resume as fast as possible
+    try {
+      // 0. lock the region to make sure we don't get anymore writes/close/flush
+      // mid-snapshot.
+      checkResources();
+      startRegionOperation();
+
+      // Stop updates while we take a snapshot of the current hfiles. We only
+      // have to do this for a moment - Its quick (kinda).
+      MultiVersionConsistencyControl.WriteEntry w = null;
+
+      // We have to take a write lock during snapshot, or else a write could
+      // end up in both snapshot and memstore (makes it difficult to do atomic
+      // rows then)
+      status.setStatus("Obtaining lock to block concurrent updates");
+      this.updatesLock.writeLock().lock();
+      // Record the mvcc for all transactions in progress.
+      w = mvcc.beginMemstoreInsert();
+      mvcc.advanceMemstore(w);
+
+      // 0. wait for all in-progress transactions to commit to HLog before
+      // we can start the snapshot. This ensures that anything from the client
+      // that was written before the snapshot makes it into the snapshot. It
+      // won't necesarily be in the HFiles, but will at least make it into the
+      // WAL
+      mvcc.waitForRead(w);
+      String s = "MVCC rolled forward to snapshot write point, "
+          + "now we can proceed with WAL and hfile referencing";
+      status.setStatus(s);
+      LOG.debug(s);
+
+      // 1. make sure we aren't flushing/compacting so we have a consistent view
+      // of the underlying files when we snapshot (assumed that these take a
+      // while, so we need to fail the snapshot immediately).
+      synchronized (writestate) {
+        if (!writestate.flushing && !(writestate.compacting > 0)) {
+          writestate.writesEnabled = false;
+          writestate.snapshot = true;
+        } else {
+          // XXX - make this configurable to wait for a timeout? Right now we
+          // just assume that this is a long operation and we should try
+          // snapshotting again later.
+          LOG.info("NOT performing snapshot for region " + this + ", flushing="
+              + writestate.flushing + ", compacting=" + writestate.compacting);
+          throw new SnapshotCreationException("Region " + this + " is flushing/compacting", desc);
+        }
+      }
+      // tell the monitor that we have reached a stable point
+      monitor.becomeStable();
+
+      // 2. Add references to meta about the store files
+      failureStatus.checkFailure();
+
+      // This should be "fast" since we don't rewrite store files but instead
+      // back up the store files by creating a "reference".
+      Path snapshotRegionDir = SnapshotUtils.getRegionSnaphshotDirectory(desc,
+        this.rsServices.getRootDir(), regionInfo.getEncodedName());
+
+      // 2.1. dump region meta info into the snapshot directory
+      checkRegioninfoOnFilesystem(snapshotRegionDir);
+
+      // 2.2 iterate through all the stores in the region
+      for (Store store : stores.values()) {
+        // build the snapshot reference directory for the store
+        Path dstStoreDir = SnapshotUtils.getStoreSnapshotDirectory(snapshotRegionDir, store
+            .getFamily().getName());
+
+        for (StoreFile file : store.getStorefiles()) {
+          failureStatus.checkFailure();
+          // 2.3. create "reference" to this store file
+          Path dstFile = SnapshotUtils.createReference(fs, conf, file.getPath(), dstStoreDir);
+
+          // XXX maybe we just want to talk to the region hosting meta at this
+          // point rather than talking via the htable api?
+
+          // 2.4 update reference count for this store file
+          incrementRefCountInMeta(this.getRegionServerServices().getCatalogTracker(), regionInfo,
+            file.getPath(), dstFile, fs);
+        }
+      }
+    } catch (NotServingRegionException e) {
+      throw new SnapshotCreationException("Requested region was offline", desc);
+    } catch (IOException e) {
+      throw new SnapshotCreationException(e.getMessage(), e, desc);
+    }
+    // implicitly updates the monitor that we are done because the future
+    // running this method returns
+  }
+
+  /**
+   * This <b>MUST</b> called after
+   * {@link #startSnapshot(SnapshotDescriptor, RegionSnapshotOperationStatus, SnapshotFailureStatus)}
+   * to unlock the region for writes when the snapshot has completed.
+   * <p>
+   * This can be called mulitple times,
+   */
+  public void finishSnapshot() {
+    LOG.debug("Finishing snapshot by unlocking resources.");
+    try {
+      this.updatesLock.writeLock().unlock();
+    } catch (IllegalMonitorStateException e) {
+      LOG.debug("Don't own the update lock - snapshot already finished?");
+    }
+    try {
+      this.closeRegionOperation();
+    } catch (IllegalMonitorStateException e) {
+      LOG.debug("Don't own the close operation lock - snapshot already finished?");
+    }
+  }
+
+  /**
+   * Increase the reference count of the <code>srcfile</code> by one.
+   * @param tracker tracker for the meta table
+   * @param info region which contains the <code>srcfile</code>
+   * @param srcfile file which is referred to by <code>reference<code>
+   * @param reference reference for which meta is being updated (passed in so
+   *          can cleanup on increment failure).
+   * @param fs {@link FileSystem} on which the reference file lives, for cleanup
+   *          in failure cases
+   * @throws IOException if the increment cannot be made
+   */
+  public static void incrementRefCountInMeta(final CatalogTracker tracker, final HRegionInfo info,
+      Path srcfile, Path reference, final FileSystem fs) throws IOException {
+    try {
+      // reference count information is not stored in the original meta row
+      // for this region but in a separate row whose row key is prefixed by
+      // ".SNAPSHOT." This can be seen as a virtual table ".SNAPSHOT."
+      MetaEditor.incrementFileReferenceCountForRegion(tracker, info, srcfile);
+    } catch (IOException e) {
+      LOG.debug("Failed to update reference count for " + srcfile);
+      // Keep the reference count consistent with the actual number of
+      // reference files. Delete reference file if updating reference
+      // count in META fails
+      fs.delete(reference, true);
+      throw e;
+    }
+  }
 
   /**
    * Replaces any KV timestamps set to {@link HConstants#LATEST_TIMESTAMP}

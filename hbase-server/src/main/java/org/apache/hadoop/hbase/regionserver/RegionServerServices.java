@@ -24,6 +24,7 @@ import java.util.Map;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.backup.HFileArchiveMonitor;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.ipc.RpcServer;
@@ -93,4 +94,9 @@ public interface RegionServerServices extends OnlineRegions {
    *         where they should be archived
    */
   public HFileArchiveMonitor getHFileArchiveMonitor();
+
+  /**
+   * @return Return the rootDir.
+   */
+  public Path getRootDir();
 }

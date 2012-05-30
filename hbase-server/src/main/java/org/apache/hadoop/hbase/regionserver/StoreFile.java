@@ -32,7 +32,6 @@ import java.util.SortedSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -40,6 +39,7 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HDFSBlocksDistribution;
@@ -200,14 +200,6 @@ public class StoreFile extends SchemaConfigured {
    */
   private Map<byte[], byte[]> metadataMap;
 
-  /*
-   * Regex that will work for straight filenames and for reference names.
-   * If reference, then the regex has more than just one group.  Group 1 is
-   * this files id.  Group 2 the referenced region name, etc.
-   */
-  private static final Pattern REF_NAME_PARSER =
-    Pattern.compile("^([0-9a-f]+)(?:\\.(.+))?$");
-
   // StoreFile.Reader
   private volatile Reader reader;
 
@@ -250,7 +242,7 @@ public class StoreFile extends SchemaConfigured {
     this.dataBlockEncoder =
         dataBlockEncoder == null ? NoOpDataBlockEncoder.INSTANCE
             : dataBlockEncoder;
-    if (isReference(p)) {
+    if (Reference.isReference(p)) {
       this.reference = Reference.read(fs, p);
       this.referencePath = getReferredToFile(this.path);
     }
@@ -296,29 +288,6 @@ public class StoreFile extends SchemaConfigured {
     return this.reference != null;
   }
 
-  /**
-   * @param p Path to check.
-   * @return True if the path has format of a HStoreFile reference.
-   */
-  public static boolean isReference(final Path p) {
-    return !p.getName().startsWith("_") &&
-      isReference(p, REF_NAME_PARSER.matcher(p.getName()));
-  }
-
-  /**
-   * @param p Path to check.
-   * @param m Matcher to use.
-   * @return True if the path has format of a HStoreFile reference.
-   */
-  public static boolean isReference(final Path p, final Matcher m) {
-    if (m == null || !m.matches()) {
-      LOG.warn("Failed match of store file name " + p.toString());
-      throw new RuntimeException("Failed match of store file name " +
-          p.toString());
-    }
-    return m.groupCount() > 1 && m.group(2) != null;
-  }
-
   /*
    * Return path to the file referred to by a Reference.  Presumes a directory
    * hierarchy of <code>${hbase.rootdir}/tablename/regionname/familyname</code>.
@@ -327,7 +296,7 @@ public class StoreFile extends SchemaConfigured {
    * @throws IOException
    */
   static Path getReferredToFile(final Path p) {
-    Matcher m = REF_NAME_PARSER.matcher(p.getName());
+    Matcher m = Reference.REF_NAME_PARSER.matcher(p.getName());
     if (m == null || !m.matches()) {
       LOG.warn("Failed match of store file name " + p.toString());
       throw new RuntimeException("Failed match of store file name " +
@@ -473,7 +442,7 @@ public class StoreFile extends SchemaConfigured {
    */
   static public HDFSBlocksDistribution computeHDFSBlockDistribution(
     FileSystem fs, Path p) throws IOException {
-    if (isReference(p)) {
+    if (Reference.isReference(p)) {
       Reference reference = Reference.read(fs, p);
       Path referencePath = getReferredToFile(p);
       return computeRefFileHDFSBlockDistribution(fs, reference, referencePath);
@@ -899,7 +868,6 @@ public class StoreFile extends SchemaConfigured {
     Path p = new Path(splitDir, f.getPath().getName() + "." + parentRegionName);
     return r.write(fs, p);
   }
-
 
   /**
    * A StoreFile writer.  Use this to read/write HBase Store Files. It is package

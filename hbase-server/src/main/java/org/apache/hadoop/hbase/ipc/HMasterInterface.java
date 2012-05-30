@@ -44,8 +44,9 @@ import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ShutdownResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.StopMasterRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.StopMasterResponse;
 import org.apache.hadoop.hbase.UnknownRegionException;
-import org.apache.hadoop.hbase.security.TokenInfo;
 import org.apache.hadoop.hbase.security.KerberosInfo;
+import org.apache.hadoop.hbase.security.TokenInfo;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Pair;
 
 import com.google.protobuf.RpcController;
@@ -76,6 +77,7 @@ public interface HMasterInterface extends VersionedProtocol {
   // 29:  4/3/2010 - changed ClusterStatus serialization
   // 30: 3/20/2012 - HBASE-5589: Added offline method
   // 31: 5/8/2012 - HBASE-5445: Converted to PB-based calls
+  // 32: 5/2012 - HBASE-50/HBASE-6055: Add snapshots
   public static final long VERSION = 31L;
 
   /**
@@ -173,6 +175,48 @@ public interface HMasterInterface extends VersionedProtocol {
    */
   public void modifyTable(byte[] tableName, HTableDescriptor htd)
   throws IOException;
+
+  /**
+   * Create a snapshot for the given table.
+   * @param snapshotName name of the snapshot
+   * @param tableName table to snapshot
+   * @throws IOException if the snapshot cannot be made
+   */
+  public void snapshot(final byte[] snapshotName, final byte[] tableName)
+    throws IOException;
+
+  /**
+   * Create a snapshot for the given table
+   * @param tableName name of the table to snapshot
+   * @return the name of the snapshot to reference
+   * @throws IOException if the snapshot cannot be made
+   */
+  public byte[] snapshot(final byte[] tableName) throws IOException;
+
+  /**
+   * List existing snapshots.
+   * 
+   * @return a list of snapshot descriptor
+   * @throws IOException e
+   */
+  public SnapshotDescriptor[] listSnapshots() throws IOException;
+
+  /**
+   * Restore a table from a snapshot.
+   *
+   * @param snapshotName snapshot to restore
+   * @throws IOException e
+   */
+  public void restoreSnapshot(final byte[] snapshotName) throws IOException;
+
+  /**
+   * Delete an existing snapshot. This method can also be used to clean up
+   * a aborted snapshot.
+   *
+   * @param snapshotName snapshot to delete
+   * @throws IOException e
+   */
+  public void deleteSnapshot(final byte[] snapshotName) throws IOException;
 
   /**
    * Shutdown an HBase cluster.

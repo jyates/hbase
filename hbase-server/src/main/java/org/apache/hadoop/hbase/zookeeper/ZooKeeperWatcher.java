@@ -104,6 +104,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
   public String splitLogZNode;
   // znode to track archiving hfiles
   public String archiveHFileZNode;
+  // znode of the root directory for snapshot information
+  public String snapshotZNode;
 
   // Certain ZooKeeper nodes need to be world-readable
   public static final ArrayList<ACL> CREATOR_ALL_AND_WORLD_READABLE =
@@ -167,6 +169,7 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
       ZKUtil.createAndFailSilent(this, tableZNode);
       ZKUtil.createAndFailSilent(this, splitLogZNode);
       ZKUtil.createAndFailSilent(this, backupMasterAddressesZNode);
+      ZKUtil.createAndFailSilent(this, snapshotZNode);
     } catch (KeeperException e) {
       throw new ZooKeeperConnectionException(
           prefix("Unexpected KeeperException creating base node"), e);
@@ -217,6 +220,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
     archiveHFileZNode = ZKUtil
         .joinZNode(baseZNode, conf.get("zookeeper.znode.hfile.archive",
             HConstants.HFILE_ARCHIVE_ZNODE_PARENT));
+    snapshotZNode = ZKUtil.joinZNode(baseZNode,
+        conf.get("zookeeper.znode.snapshot", "snapshot"));
   }
 
   /**

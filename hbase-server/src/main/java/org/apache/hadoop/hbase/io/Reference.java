@@ -24,7 +24,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -58,8 +62,15 @@ import com.google.protobuf.ByteString;
  */
 @InterfaceAudience.Private
 public class Reference implements Writable {
+  private static final Log LOG = LogFactory.getLog(Reference.class);
   private byte [] splitkey;
   private Range region;
+  /*
+   * Regex that will work for straight filenames and for reference names. If
+   * reference, then the regex has more than just one group. Group 1 is this
+   * files id. Group 2 the referenced region name, etc.
+   */
+  public static final Pattern REF_NAME_PARSER = Pattern.compile("^([0-9a-f]+)(?:\\.(.+))?$");
 
   /**
    * For split HStoreFiles, it specifies if the file covers the lower half or
@@ -69,9 +80,16 @@ public class Reference implements Writable {
     /** HStoreFile contains upper half of key range */
     top,
     /** HStoreFile contains lower half of key range */
-    bottom
+    bottom,
+    /** Simple reference to an entire file*/
+    whole;
   }
 
+  // TODO: add whole reference support around the entire class
+  // TODO: add support for reading in previous files s.t. works with a whole
+  // reference as well as the previous format (could be we have
+  // no-going-backsies)
+  
   /**
    * @param splitRow
    * @return A {@link Reference} that points at top half of a an hfile
@@ -132,7 +150,48 @@ public class Reference implements Writable {
   }
 
   /**
-   * @deprecated Writables are going away. Use the pb serialization methods instead.
+   * @return true if the range is Range.ENTIRE
+   */
+  public static boolean isEntireRange(final Range r) {
+    return r.equals(Range.whole);
+  }
+
+  /**
+   * @param p Path to check.
+   * @param m Matcher to use.
+   * @return True if the path has format of a HStoreFile reference.
+   * @throws RuntimeException if the store file name doesn't match
+   */
+  public static boolean isReference(final Path p, final Matcher m) {
+    LOG.debug("Checking to see if " + p + " is a reference.");
+    if (m == null || !m.matches()) {
+      LOG.warn("Failed match of store file name " + p.toString());
+      throw new RuntimeException("Failed match of store file name " + p.toString());
+    }
+    return m.groupCount() > 1 && m.group(2) != null;
+  }
+
+  /**
+   * @param p Path to check.
+   * @return True if the path has format of a HStoreFile reference.
+   */
+  public static boolean isReference(final Path p) {
+    return !p.getName().startsWith("_")
+        && Reference.isReference(p, Reference.REF_NAME_PARSER.matcher(p.getName()));
+  }
+
+  public static boolean checkReference(final Path p) {
+    try {
+      return isReference(p);
+    } catch (RuntimeException e) {
+      // NOOP - isReference exception is not actually exceptional
+    }
+    return false;
+  }
+
+  /**
+   * @deprecated Writables are going away. Use the pb serialization methods
+   *             instead.
    */
   @Deprecated
   public void write(DataOutput out) throws IOException {
