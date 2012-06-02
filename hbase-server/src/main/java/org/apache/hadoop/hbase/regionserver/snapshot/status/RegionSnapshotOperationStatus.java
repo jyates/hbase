@@ -50,13 +50,11 @@ public class RegionSnapshotOperationStatus extends SnapshotStatus {
   // per region stability info
   private final AtomicInteger stableRegionCount = new AtomicInteger(0);
   private int totalRegions = 0;
-  private final long wakeFrequency;
 
   public RegionSnapshotOperationStatus(SnapshotFailureMonitor failureMonitor,
-      SnapshotDescriptor desc, int regionCount, long wakeFrequency) {
+      SnapshotDescriptor desc, int regionCount) {
     this.failureMonitor = failureMonitor;
     this.desc = desc;
-    this.wakeFrequency = wakeFrequency;
   }
 
   @Override
@@ -65,22 +63,8 @@ public class RegionSnapshotOperationStatus extends SnapshotStatus {
     for (int i = 0; i < results.size(); i++) {
       try {
         if (results.get(i).isDone()) {
-          results.get(i).getResult();
           results.remove(i--);
         }
-      }
-      // if there is any kind of failure, everyone fails
-      catch (ExecutionException e) {
-        failureMonitor.localSnapshotFailure(desc, "Region had an exception while snapshotting:"
-            + e.getMessage());
-        // cancel all the remaing tasks because we failed the snapshot
-        cancelOperations();
-        break;
-      } catch (InterruptedException e) {
-        failureMonitor.localSnapshotFailure(desc, "Region had an exception while snapshotting:"
-            + e.getMessage());
-        cancelOperations();
-        break;
       } catch (CancellationException e) {
         // ignore - cancellation occurs if we cancelled it already
         break;
@@ -95,7 +79,7 @@ public class RegionSnapshotOperationStatus extends SnapshotStatus {
       LOG.debug("All regions done snapshotting");
       return true;
     }
-    LOG.debug("Stil have some regions left to finish snapshotting.");
+    LOG.debug("Still have some regions left to finish snapshotting.");
     return false;
   }
 

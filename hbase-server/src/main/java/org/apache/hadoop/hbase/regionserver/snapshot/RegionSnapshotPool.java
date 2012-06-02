@@ -57,15 +57,16 @@ public class RegionSnapshotPool implements Closeable {
     // start the snapshot async on each region and get a pointer to the result
     // create the status monitor so we can track progress
     RegionSnapshotOperationStatus status = new RegionSnapshotOperationStatus(failureMonitor, desc,
-        operations.size(), wakeFrequency);
+        operations.size());
 
     // add the region operations to the pool
     for (RegionSnapshotOperation snapshot : operations) {
       // set the status monitor so we can keep track of the progress
       snapshot.setStatusMonitor(status);
       // start running the operation
+      pool.submit(snapshot);
       // and pin the region status to the overall status
-      status.addStatus(submitSnapshotWork(snapshot));
+      status.addStatus(snapshot.getStatusMonitor());
     }
 
     return status;

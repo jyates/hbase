@@ -56,7 +56,7 @@ public abstract class MasterSnapshotOperation {
       throws IOException {
     this.master = master;
     this.fs = master.getMasterFileSystem().getFileSystem();
-    this.snapshotDir = SnapshotDescriptor.getSnapshotDir(snapshotName, master
+    this.snapshotDir = SnapshotDescriptor.getCompletedSnapshotDir(snapshotName, master
             .getMasterFileSystem().getRootDir());
     if (!fs.exists(snapshotDir)) {
       throw new IOException("snapshot does not exist");

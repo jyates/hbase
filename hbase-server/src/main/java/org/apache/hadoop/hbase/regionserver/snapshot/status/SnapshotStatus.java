@@ -46,8 +46,13 @@ public abstract class SnapshotStatus {
    * @throws SnapshotCreationException if the snapshot has failed at any point
    */
   public final boolean isDone() throws SnapshotCreationException {
-    if (future != null && !future.isDone()) return false;
-    return checkDone();
+    // XXX this is really ugly - needs to be refactored for a status that
+    // monitors the progress of a thread and one that monitors check done
+    if (checkDone()) {
+      if (future == null) return true;
+      return future.isDone();
+    }
+    return false;
   }
 
   /**

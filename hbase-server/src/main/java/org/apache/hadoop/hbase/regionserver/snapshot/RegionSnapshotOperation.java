@@ -19,6 +19,8 @@ package org.apache.hadoop.hbase.regionserver.snapshot;
 
 import java.io.IOException;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotStatus;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitor;
@@ -31,7 +33,8 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
  */
 class RegionSnapshotOperation extends SnapshotOperation<RegionSnapshotStatus> {
   private final HRegion region;
-  private boolean finished = false;
+  private volatile boolean finished = false;
+  private static final Log LOG = LogFactory.getLog(RegionSnapshotOperation.class);
 
   public RegionSnapshotOperation(SnapshotFailureMonitor monitor, SnapshotDescriptor snapshot,
       HRegion region) {
@@ -53,6 +56,15 @@ class RegionSnapshotOperation extends SnapshotOperation<RegionSnapshotStatus> {
   public void run() {
     try {
       region.startSnapshot(snapshot, status, this.getFailureMonitor());
+
+      while (!finished) {
+        try {
+          Thread.sleep(100);
+        } catch (InterruptedException e) {
+          LOG.debug("Wait for finish interrupted, done:" + finished);
+        }
+      }
+      region.finishSnapshot();
     } catch (IOException e) {
       failSnapshot("Region couldn't complete taking snapshot", e);
     }
@@ -65,9 +77,6 @@ class RegionSnapshotOperation extends SnapshotOperation<RegionSnapshotStatus> {
    * region.
    */
   public synchronized void finish() {
-    if (!finished) {
-      finished = true;
-      region.finishSnapshot();
-    }
+    finished = true;
   }
 }

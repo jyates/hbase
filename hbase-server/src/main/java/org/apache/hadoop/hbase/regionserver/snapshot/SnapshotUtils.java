@@ -63,7 +63,7 @@ public class SnapshotUtils {
       referenceFile = new Path(dstDir, srcFile.getName());
       FileUtil.copy(fs, srcFile, fs, referenceFile, false, conf);
     } else {
-      LOG.debug("Creating new reference file.");
+      LOG.debug("Creating new reference file for: " + srcFile);
       referenceFile = createReferenceFile(fs, srcFile, dstDir);
     }
     return referenceFile;
@@ -94,7 +94,7 @@ public class SnapshotUtils {
    */
   public static Path getRegionSnaphshotDirectory(SnapshotDescriptor desc, Path rootDir,
       String regionName) {
-    Path snapshotDir = SnapshotDescriptor.getSnapshotDir(desc, rootDir);
+    Path snapshotDir = SnapshotDescriptor.getWorkingSnapshotDir(desc, rootDir);
     return HRegion.getRegionDir(snapshotDir, regionName);
   }
 

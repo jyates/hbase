@@ -42,7 +42,9 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
    * The file contains the snapshot basic information and it
    * is under the directory of a snapshot.
    */
-  public static final String SNAPSHOTINFO_FILE = "snapshotinfo";
+  public static final String SNAPSHOTINFO_FILE = ".snapshotinfo";
+
+  private static final String SNAPSHOT_TMP_DIR = ".tmp";
 
   private byte[] snapshotName;
   private byte[] tableName;
@@ -171,29 +173,48 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
 
   /**
    * Get the directory for a specified snapshot. This directory is a
-   * sub-directory of snapshot root directory and all the data files
-   * for a snapshot are kept under this directory.
-   * @param snapshotName name of the snapshot
+   * sub-directory of snapshot root directory and all the data files for a
+   * snapshot are kept under this directory.
+   * @param snapshot snapshot being taken
    * @param rootDir hbase root directory
-   *
-   * @return the base directory for the given snapshot
+   * @return the final directory for the completed snapshot
    */
-  public static Path getSnapshotDir(final byte [] snapshotName, final Path rootDir) {
-    return new Path(new Path(rootDir, HConstants.SNAPSHOT_DIR),
-        Bytes.toString(snapshotName));
+  public static Path getCompletedSnapshotDir(final SnapshotDescriptor snapshot, final Path rootDir) {
+    return getCompletedSnapshotDir(snapshot.snapshotName, rootDir);
   }
 
   /**
-   * Get the directory for a specified snapshot. This directory is a
+   * Get the directory for a completed snapshot. This directory is a
    * sub-directory of snapshot root directory and all the data files for a
    * snapshot are kept under this directory.
-   * @param desc descriptor for the snapshot to evaluate
+   * @param snapshot snapshot being taken
    * @param rootDir hbase root directory
-   * 
-   * @return the base directory for the given snapshot
+   * @return the final directory for the completed snapshot
    */
-  public static Path getSnapshotDir(SnapshotDescriptor desc, final Path rootDir) {
-    return getSnapshotDir(desc.snapshotName, rootDir);
+  public static Path getCompletedSnapshotDir(final byte[] snapshotName, final Path rootDir) {
+    return getSnapshotDir(snapshotName, new Path(rootDir, HConstants.SNAPSHOT_DIR));
+  }
+
+  /**
+   * Get the directory to build a snapshot, before it is finalized
+   * @param snapshot snapshot that will be built
+   * @param rootDir root directory of the hbase installation
+   * @return {@link Path} where one can build a snapshot
+   */
+  public static Path getWorkingSnapshotDir(SnapshotDescriptor snapshot, final Path rootDir) {
+    return getSnapshotDir(snapshot.snapshotName, new Path(
+        new Path(rootDir, HConstants.SNAPSHOT_DIR),
+        SNAPSHOT_TMP_DIR));
+  }
+
+  /**
+   * Get the directory to store the snapshot instance
+   * @param snapshotName name of the snapshot to take
+   * @param snapshots hbase-global directory for storing all snapshots
+   * @return
+   */
+  private static final Path getSnapshotDir(byte[] snapshotName, final Path snapshots) {
+    return new Path(snapshots, Bytes.toString(snapshotName));
   }
 
   @Override

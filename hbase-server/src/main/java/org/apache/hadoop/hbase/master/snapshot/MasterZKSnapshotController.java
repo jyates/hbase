@@ -105,7 +105,8 @@ public class MasterZKSnapshotController extends ZKSnapshotController {
 
   void completeSnapshot(SnapshotDescriptor sd) throws KeeperException {
     String snapshotNode = ZKUtil.joinZNode(endSnapshotBarrier, sd.getSnapshotNameAsString());
-    ZKUtil.createAndFailSilent(watcher, endSnapshotBarrier);
+    LOG.debug("Creating zk node:" + snapshotNode);
+    ZKUtil.createAndFailSilent(watcher, snapshotNode);
     childrenCompletedSnapshot(ZKUtil.listChildrenAndWatchForNewChildren(watcher, snapshotNode));
   }
 

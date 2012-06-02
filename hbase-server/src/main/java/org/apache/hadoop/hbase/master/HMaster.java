@@ -1063,15 +1063,20 @@ Server {
   @Override
   public void snapshot(final byte[] snapshotName, final byte[] tableName)
     throws IOException {
-    // first create the snapshot description and check if we can make it
+    // first create the snapshot description and check to see if it exists
     SnapshotDescriptor hsd = new SnapshotDescriptor(snapshotName, tableName);
-    Path snapshotDir = SnapshotDescriptor.getSnapshotDir(hsd.getSnapshotName(), this
-        .getMasterFileSystem().getRootDir());
+    Path snapshotDir = SnapshotDescriptor.getCompletedSnapshotDir(hsd, this.getMasterFileSystem()
+        .getRootDir());
 
     if (this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
       throw new SnapshotExistsException("Snapshot " + hsd.getSnapshotNameAsString()
           + " already exists.");
     }
+
+    // first write down the snapshot info in the .tmp directory
+    Path workingDir = SnapshotDescriptor.getWorkingSnapshotDir(hsd, this.getMasterFileSystem()
+        .getRootDir());
+    SnapshotDescriptor.write(hsd, workingDir, this.getMasterFileSystem().getFileSystem());
 
     try {
       // then check to see how we should do the snapshot - online or offline
@@ -1081,20 +1086,20 @@ Server {
           hsd.getTableNameAsString())) {
         // get the snapshot monitor
         SnapshotSentinel sentinel = snapshotManager.startSnapshot(hsd);
-        // and wait for the snapshot to finish
+        // and wait for the snapshot to finish (blocking)
         sentinel.waitToFinish();
-
-        // since it finished, we need to then move the snapshot directory out of
-        // .tmp
-        Path completedSnapshot = getCompletedSnapshotDirectory(snapshotDir);
-        if (completedSnapshot == null) {
+        LOG.debug("Sentinel is done, just moving the snapshot from " + workingDir + " to "
+            + snapshotDir);
+        // finally move the snapshot to the completed location
+        try {
+        this.getMasterFileSystem().getFileSystem().rename(workingDir, snapshotDir);
+        } catch (IOException e) {
           throw new SnapshotCreationException(
               "Could not complete snapshot because directory structure was compromised "
                   + "- expected snapshot to be build in a .tmp directory, but it wasn't! "
-                  + "Instead, it was build it:" + snapshotDir);
+                  + "Instead, it was build it:" + snapshotDir, e);
         }
-        // finally move the snapshot to the completed location
-        this.getMasterFileSystem().getFileSystem().rename(snapshotDir, completedSnapshot);
+        LOG.debug("Completed taking snapshot: " + hsd);
         return;
       }
 
@@ -1112,14 +1117,6 @@ Server {
       LOG.error("Failed to create snapshot:" + e);
       snapshotManager.abort(hsd);
     }
-  }
-
-  private Path getCompletedSnapshotDirectory(Path snapshotDir) {
-    Path parent = snapshotDir.getParent();
-    if (!parent.getName().equals(".tmp")) return null;
-
-    Path snapshots = parent.getParent();
-    return new Path(snapshots, snapshotDir.getName());
   }
 
   /**

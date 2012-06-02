@@ -56,7 +56,7 @@ public class TableInfoCopyOperation extends SnapshotOperation<TableInfoStatus> {
         this.snapshot.getTableName());
       checkFailure();
       // 1. write a copy of it to the snapshot directory
-      Path snapshotDir = SnapshotDescriptor.getSnapshotDir(snapshot, rss.getRootDir());
+      Path snapshotDir = SnapshotDescriptor.getWorkingSnapshotDir(snapshot, rss.getRootDir());
       FSTableDescriptors.createTableDescriptor(fs, snapshotDir, orig, true);
     } catch (IOException e) {
       failSnapshot("Couldn't copy tableinfo", e);

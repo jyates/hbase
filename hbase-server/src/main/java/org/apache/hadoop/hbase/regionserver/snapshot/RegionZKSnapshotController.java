@@ -71,18 +71,22 @@ public class RegionZKSnapshotController extends ZKSnapshotController {
   private void watchForNewSnapshots() throws KeeperException {
     // watch for new snapshots that we need to join
     try {
-    for (String snapshotName : ZKUtil.listChildrenAndWatchForNewChildren(watcher,
-      startSnapshotBarrier)) {
-      String path = ZKUtil.joinZNode(startSnapshotBarrier, snapshotName);
-      byte[] data = ZKUtil.getData(watcher, path);
-      if (data.length != 0) {
-        SnapshotDescriptor snapshot = getSnapshotDescription(data);
-        this.listener.startSnapshot(snapshot);
-      } else {
-        abort("No data present in snapshot node - " + path
-            + ", can't read in snaphost on zookeeper",
-          new KeeperException.DataInconsistencyException());
-      }
+      for (String snapshotName : ZKUtil.listChildrenAndWatchForNewChildren(watcher,
+        startSnapshotBarrier)) {
+        // watch for the complete node for this snapshot
+        String completeZNode = ZKUtil.joinZNode(endSnapshotBarrier, snapshotName);
+        ZKUtil.watchAndCheckExists(watcher, completeZNode);
+        // then read in the snapshot information
+        String path = ZKUtil.joinZNode(startSnapshotBarrier, snapshotName);
+        byte[] data = ZKUtil.getData(watcher, path);
+        if (data.length != 0) {
+          SnapshotDescriptor snapshot = getSnapshotDescription(data);
+          this.listener.startSnapshot(snapshot);
+        } else {
+          abort("No data present in snapshot node - " + path
+              + ", can't read in snaphost on zookeeper",
+            new KeeperException.DataInconsistencyException());
+        }
       }
     } catch (IOException e) {
       abort("Failed to read in snapshot description", e);
@@ -116,16 +120,17 @@ public class RegionZKSnapshotController extends ZKSnapshotController {
         String parent = ZKUtil.getParent(path);
         // if its the end barrier, that snapshot can be completed
         if (parent.equals(endSnapshotBarrier)) {
+          LOG.debug("Recieved finsh snapshot event.");
           this.listener.finishSnapshot(node);
           return;
         } else if (parent.equals(abortZnode)) {
-
           this.listener.remoteSnapshotFailure(node, "Snapshot " + node + " aborted in ZK.");
           return;
         } else if (parent.equals(startSnapshotBarrier)) {
         byte[] data = ZKUtil.getData(watcher, path);
         if (data.length != 0) {
-          SnapshotDescriptor snapshot = getSnapshotDescription(data);
+            SnapshotDescriptor snapshot = getSnapshotDescription(data);
+            // TODO should be async? Right now we block until its done
             this.listener.startSnapshot(snapshot);
           }
         }else {

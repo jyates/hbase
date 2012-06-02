@@ -25,6 +25,7 @@ import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 public class RegionSnapshotStatus extends SnapshotStatus {
 
   private final RegionSnapshotOperationStatus parent;
+  private boolean completedSnapshot;
   public RegionSnapshotStatus(RegionSnapshotOperationStatus parent) {
     this.parent = parent;
   }
@@ -36,6 +37,13 @@ public class RegionSnapshotStatus extends SnapshotStatus {
     parent.regionBecameStable();
   }
 
+  /**
+   * Indicate that the region has completed the snapshot
+   */
+  public void completedSnapshot() {
+    this.completedSnapshot = true;
+  }
+
   @Override
   public String getStatus() {
     try {
@@ -44,5 +52,10 @@ public class RegionSnapshotStatus extends SnapshotStatus {
       return "snapshot creation exception!";
     }
     return "working...";
+  }
+
+  @Override
+  protected boolean checkDone() {
+    return completedSnapshot;
   }
 }

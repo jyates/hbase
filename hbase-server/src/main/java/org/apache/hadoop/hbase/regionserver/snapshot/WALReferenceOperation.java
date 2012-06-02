@@ -80,7 +80,8 @@ public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor>
         // add the reference to the file
         // 0. Build a reference path based on the file name
         // get the current snapshot directory
-        Path snapshotDir = SnapshotDescriptor.getSnapshotDir(this.snapshot, parent.getRootDir());
+        Path snapshotDir = SnapshotDescriptor.getWorkingSnapshotDir(this.snapshot,
+          parent.getRootDir());
         Path snapshotLogDir = SnapshotUtils.getLogSnapshotDir(snapshotDir, parent);
         // actually store the reference on disk (small file)
         SnapshotUtils.createReference(fs, parent.getConfiguration(), file,

@@ -2562,7 +2562,7 @@ public class HRegion implements HeapSize { // , Writable{
 
           // XXX maybe we just want to talk to the region hosting meta at this
           // point rather than talking via the htable api?
-
+          LOG.debug("Updating ref count in meta.");
           // 2.4 update reference count for this store file
           incrementRefCountInMeta(this.getRegionServerServices().getCatalogTracker(), regionInfo,
             file.getPath(), dstFile, fs);
@@ -2573,8 +2573,8 @@ public class HRegion implements HeapSize { // , Writable{
     } catch (IOException e) {
       throw new SnapshotCreationException(e.getMessage(), e, desc);
     }
-    // implicitly updates the monitor that we are done because the future
-    // running this method returns
+    LOG.debug("Region:" + this + " completed snapshot.");
+    monitor.completedSnapshot();
   }
 
   /**

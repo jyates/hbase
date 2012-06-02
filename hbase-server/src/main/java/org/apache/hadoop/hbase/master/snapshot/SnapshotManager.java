@@ -181,7 +181,7 @@ public class SnapshotManager implements MasterSnapshotStatusListener {
           + hsd);
       this.sentinel.abort();
       FSUtils.deleteDirectory(master.getMasterFileSystem().getFileSystem(),
-        SnapshotDescriptor.getSnapshotDir(hsd, master.getMasterFileSystem().getRootDir()));
+        SnapshotDescriptor.getWorkingSnapshotDir(hsd, master.getMasterFileSystem().getRootDir()));
     }
   }
 
@@ -192,6 +192,7 @@ public class SnapshotManager implements MasterSnapshotStatusListener {
   @Override
   public void allServersPreparedSnapshot() {
     try {
+      LOG.debug("All servers have jong the snapshot, putting up complete node.");
       this.controller.completeSnapshot(this.sentinel.getSnapshot());
     } catch (KeeperException e) {
       // ruthless failure if we can't reach ZK

@@ -171,7 +171,7 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
     }
 
     // check to see if we are already running this snapshot
-    if (this.requests.containsKey(snapshot)) return;// false;
+    if (this.requests.containsKey(snapshot)) return;
 
     // check to see if we have regions for the snapshot
     List<HRegion> involvedRegions;
@@ -183,23 +183,25 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
       return;// false;
     }
 
-    if (involvedRegions.size() > 0) {
-      // 1. Create a snapshot request
-      SnapshotRequestHandler handler = requestHandlerFactory.create(snapshot, involvedRegions,
-        this.parent);
-      // 2. add the request handler to the current request
-      this.requests.put(snapshot, handler);
-      // 3. add the request to listen for the failures on that snapshot
-      this.snapshotFailureListeners.put(snapshot, handler);
-      // 4. start the snapshot
-      LOG.debug("Starting to handle request for snapshot:" + snapshot.getSnapshotNameAsString());
-      if (handler.start()) {
-        try {
-          snapshotZKController.joinSnapshot(snapshot);
-        } catch (KeeperException e) {
-          this.localSnapshotFailure(snapshot,
-            "Couldn't join snapshot start barrier because:" + e.getMessage());
-        }
+    // if we aren't involved, just finish
+    if (involvedRegions.size() == 0) return;
+
+    LOG.debug("Have some regions involved in snapshot:" + involvedRegions);
+    // 1. Create a snapshot request
+    SnapshotRequestHandler handler = requestHandlerFactory.create(snapshot, involvedRegions,
+      this.parent);
+    // 2. add the request handler to the current request
+    this.requests.put(snapshot, handler);
+    // 3. add the request to listen for the failures on that snapshot
+    this.snapshotFailureListeners.put(snapshot, handler);
+    // 4. start the snapshot
+    LOG.debug("Starting to handle request for snapshot:" + snapshot.getSnapshotNameAsString());
+    if (handler.start()) {
+      try {
+        snapshotZKController.joinSnapshot(snapshot);
+      } catch (KeeperException e) {
+        this.localSnapshotFailure(snapshot,
+          "Couldn't join snapshot start barrier because:" + e.getMessage());
       }
     }
   }
@@ -228,23 +230,30 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
 
   @Override
   public void finishSnapshot(String snapshotName) {
+    LOG.debug("Finishing snapshot: " + snapshotName);
     // 0. check to see if we are dealing with this snapshot
     SnapshotDescriptor snapshot = getKnownSnapshotDescription(snapshotName);
+    LOG.debug("finishing known snapshot:" + snapshot);
     // if we don't know about that snapshot, then we are done
     if (snapshot == null) return;
+
+    LOG.debug("Checking handler for snapshot:" + snapshotName);
     SnapshotRequestHandler handler = requests.get(snapshot);
 
     // 1. wait on the handler to release the region locks
+    LOG.debug("Release local snapshot barrier");
     handler.releaseSnapshotBarrier();
 
     // 2. update ZK that we have completed the snapshot
     try {
+      LOG.debug("Notifying ZK that we finished the snapshot locally.");
       snapshotZKController.finishSnapshot(snapshot);
     } catch (KeeperException e) {
       LOG.error("Couldn't update ZK that we completed the snapshot."
           + " Region servers have already been released, so snapshot will only fail globally.");
     }
     // 3. remove the snapshot from the ones we running
+    LOG.debug("Going to clenaup the snapshot locally.");
     cleanupSnapshot(snapshot);
   }
 
@@ -277,7 +286,7 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
    */
   private SnapshotDescriptor getKnownSnapshotDescription(String snapshotName) {
     for (SnapshotDescriptor desc : requests.keySet()) {
-      if (desc.getTableNameAsString().equals(snapshotName)) {
+      if (desc.getSnapshotNameAsString().equals(snapshotName)) {
         return desc;
       }
     }

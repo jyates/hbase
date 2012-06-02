@@ -99,9 +99,9 @@ public class SnapshotSentinel {
     this.hsd = hsd;
     this.status = GlobalSnapshotStatus.INIT;
 
-    // create the base directory for this snapshot
+    // create the base directory for this snapshot-in-progress
     MasterFileSystem mfs = master.getMasterFileSystem();
-    Path snapshotDir = SnapshotDescriptor.getSnapshotDir(hsd.getSnapshotName(), mfs.getRootDir());
+    Path snapshotDir = SnapshotDescriptor.getWorkingSnapshotDir(hsd, mfs.getRootDir());
     if (!mfs.getFileSystem().mkdirs(snapshotDir)) {
       throw new IOException("Could not create snapshot directory: " + snapshotDir);
     }
@@ -124,23 +124,25 @@ public class SnapshotSentinel {
   }
 
   public void serverJoinedSnapshot(String rsID) {
+    LOG.debug("server:" + rsID + " joined snapshot on sentinel.");
     if (this.waitToPrepare.remove(ServerName.parseServerName(rsID))) {
       this.waitToFinish.add(rsID);
       // now check the length to see if we are done
       if (this.waitToPrepare.size() == 0) {
-        this.setStatus(GlobalSnapshotStatus.RS_FINISHING_SNAPSHOT);
+        this.setStatus(GlobalSnapshotStatus.RS_COMMITTING_SNAPSHOT);
         this.progressListener.allServersPreparedSnapshot();
-      }
+      } else this.setStatus(GlobalSnapshotStatus.RS_PREPARING_SNAPSHOT);
     } else {
       LOG.warn("Server: " + rsID + " joined snapshot, but we weren't waiting on it to join.");
     }
   }
 
   public void serverCompletedSnapshot(String rsID) {
-    if (this.waitToFinish.remove(ServerName.parseServerName(rsID))) {
+    if (this.waitToFinish.remove(rsID)) {
       // now check the length to see if we are done
       if (this.waitToFinish.size() == 0) {
-        this.setStatus(GlobalSnapshotStatus.ALL_RS_READY);
+        this.setStatus(GlobalSnapshotStatus.ALL_RS_FINISHED);
+        //
       }
     } else {
       LOG.warn("Server: " + rsID + " joined snapshot, but we weren't waiting on it to join.");
@@ -153,10 +155,6 @@ public class SnapshotSentinel {
   }
 
   private void setStatus(GlobalSnapshotStatus status) {
-    if (this.status == GlobalSnapshotStatus.ALL_RS_FINISHED) {
-      LOG.warn("Snapshot attempting to abort after all the RS have finished.");
-      return;
-    }
     this.status = status;
     this.interruptWaiting();
   }
@@ -195,6 +193,7 @@ public class SnapshotSentinel {
     } catch (InterruptedException e) {
       throw new SnapshotCreationException("Master thread is interrupted for snapshot: " + hsd, e);
     }
+    LOG.debug("Done waiting  - snapshot finished!");
   }
 
   private void checkExceedsTimeout(long start) throws SnapshotTimeoutException {
@@ -221,9 +220,9 @@ public class SnapshotSentinel {
    */
   public static enum GlobalSnapshotStatus {
     INIT, // snapshot is just started over the cluster
-    ALL_RS_READY, // all RS are ready for snapshot
-    RS_FINISHING_SNAPSHOT, // RS are in process to complete snapshot
-    ALL_RS_FINISHED, // all RS have finished the snapshot
+    RS_PREPARING_SNAPSHOT, // some RS are still preparing the snapshot
+    RS_COMMITTING_SNAPSHOT, // RS are committing the snapshot
+    ALL_RS_FINISHED, // all RS have finished committing the snapshot
     ABORTING; // abort the snapshot over the cluster
   }
 }
