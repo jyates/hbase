@@ -34,7 +34,7 @@ public class RegionSnapshotPool implements Closeable {
 
   @Override
   public void close() {
-    this.pool.shutdown();
+    this.pool.shutdownNow();
   }
 
   // TODO test running multiple snapshots at the same time

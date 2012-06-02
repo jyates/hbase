@@ -1048,7 +1048,8 @@ public class HRegion implements HeapSize { // , Writable{
    * <p>
    * VISBILE FOR TESTING
    */
-  void waitForFlushesAndCompactions() {
+  public void waitForFlushesAndCompactions() {
+    LOG.debug("Waiting for flushes and compactions...");
     synchronized (writestate) {
       while (writestate.compacting > 0 || writestate.flushing) {
         LOG.debug("waiting for " + writestate.compacting + " compactions"
@@ -1060,6 +1061,7 @@ public class HRegion implements HeapSize { // , Writable{
         }
       }
     }
+    LOG.debug("No more flushes or compactions at the moment.");
   }
 
   protected ThreadPoolExecutor getStoreOpenAndCloseThreadPool(
@@ -2547,25 +2549,25 @@ public class HRegion implements HeapSize { // , Writable{
         this.rsServices.getRootDir(), regionInfo.getEncodedName());
 
       // 2.1. dump region meta info into the snapshot directory
+      LOG.debug("Storing region-info for snapshot.");
       checkRegioninfoOnFilesystem(snapshotRegionDir);
 
       // 2.2 iterate through all the stores in the region
       for (Store store : stores.values()) {
+        LOG.debug("Iterating through stores for snapshot.");
         // build the snapshot reference directory for the store
         Path dstStoreDir = SnapshotUtils.getStoreSnapshotDirectory(snapshotRegionDir, store
             .getFamily().getName());
 
-        for (StoreFile file : store.getStorefiles()) {
+        List<StoreFile> files = store.getStorefiles();
+        if (LOG.isDebugEnabled()) LOG.debug("Adding snapshot references for " + files.size()
+            + " hfiles: " + files);
+        for (int i = 0; i < files.size(); i++) {
           failureStatus.checkFailure();
+          StoreFile file = files.get(i);
           // 2.3. create "reference" to this store file
-          Path dstFile = SnapshotUtils.createReference(fs, conf, file.getPath(), dstStoreDir);
-
-          // XXX maybe we just want to talk to the region hosting meta at this
-          // point rather than talking via the htable api?
-          LOG.debug("Updating ref count in meta.");
-          // 2.4 update reference count for this store file
-          incrementRefCountInMeta(this.getRegionServerServices().getCatalogTracker(), regionInfo,
-            file.getPath(), dstFile, fs);
+          LOG.debug("("+i+") Creating reference for file:" + file);
+          SnapshotUtils.createReference(fs, conf, file.getPath(), dstStoreDir);
         }
       }
     } catch (NotServingRegionException e) {

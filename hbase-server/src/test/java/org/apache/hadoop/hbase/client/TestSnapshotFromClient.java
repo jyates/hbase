@@ -20,6 +20,7 @@ package org.apache.hadoop.hbase.client;
 import static org.junit.Assert.*;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -29,6 +30,8 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.After;
@@ -107,6 +110,15 @@ public class TestSnapshotFromClient {
   public void testCreateListDestroy() throws Exception {
     LOG.debug("------- Starting Snapshot test -------------");
     HBaseAdmin admin = UTIL.getHBaseAdmin();
+    // load the table so we have some data
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
+    // and wait until everything stabilizes
+    HRegionServer rs = UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+    List<HRegion> onlineRegions = rs.getOnlineRegions(TABLE_NAME);
+    for (HRegion region : onlineRegions) {
+      region.waitForFlushesAndCompactions();
+    }
+
     // test creating the snapshot
     byte[] snapshot = admin.snapshot(TABLE_NAME);
     logFSTree(new Path(UTIL.getConfiguration().get(HConstants.HBASE_DIR)));

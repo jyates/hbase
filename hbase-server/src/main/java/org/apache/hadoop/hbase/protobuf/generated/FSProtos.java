@@ -467,6 +467,7 @@ public final class FSProtos {
         implements com.google.protobuf.ProtocolMessageEnum {
       TOP(0, 0),
       BOTTOM(1, 1),
+      WHOLE(2,2);
       ;
       
       public static final int TOP_VALUE = 0;
@@ -479,6 +480,7 @@ public final class FSProtos {
         switch (value) {
           case 0: return TOP;
           case 1: return BOTTOM;
+          case 2: return WHOLE;
           default: return null;
         }
       }

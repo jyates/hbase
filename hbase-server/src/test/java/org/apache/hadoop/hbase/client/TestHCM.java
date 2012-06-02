@@ -37,7 +37,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.hbase.client.HTable.DaemonThreadFactory;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.rest.protobuf.generated.ScannerMessage;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -284,7 +283,7 @@ public class TestHCM {
     ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 10,
         60, TimeUnit.SECONDS,
         new SynchronousQueue<Runnable>(),
-        new DaemonThreadFactory());
+        new DaemonThreadFactory("test-hcm-pool"));
 
     HTable table = new HTable(TABLE_NAME1, conn, pool);
     table.close();

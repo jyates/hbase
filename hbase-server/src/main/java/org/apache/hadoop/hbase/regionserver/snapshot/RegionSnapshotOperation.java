@@ -56,16 +56,18 @@ class RegionSnapshotOperation extends SnapshotOperation<RegionSnapshotStatus> {
   public void run() {
     try {
       region.startSnapshot(snapshot, status, this.getFailureMonitor());
-
+      LOG.debug("Region completed snapshot, waiting to commit snapshot.");
       while (!finished) {
         try {
-          Thread.sleep(100);
+          Thread.sleep(50);
         } catch (InterruptedException e) {
           LOG.debug("Wait for finish interrupted, done:" + finished);
         }
       }
+      LOG.debug("Finishing snapshot on region:" + region);
       region.finishSnapshot();
     } catch (IOException e) {
+      LOG.error("Region had an internal error and couldn't finish snapshot,", e);
       failSnapshot("Region couldn't complete taking snapshot", e);
     }
   }

@@ -217,12 +217,18 @@ public class Reference implements Writable {
 
   public Path write(final FileSystem fs, final Path p)
   throws IOException {
+    LOG.debug("Creating output stream");
     FSDataOutputStream out = fs.create(p, false);
+    LOG.debug("Got output stream");
     try {
       out.write(toByteArray());
+    } catch (IOException e) {
+      LOG.error("Failed to write reference: " + p, e);
+      throw e;
     } finally {
       out.close();
     }
+    LOG.debug("Finished writing reference to: " + p);
     return p;
   }
 
@@ -245,16 +251,17 @@ public class Reference implements Writable {
 
   FSProtos.Reference convert() {
     FSProtos.Reference.Builder builder = FSProtos.Reference.newBuilder();
-    builder.setRange(isTopFileRegion(getFileRegion())?
-      FSProtos.Reference.Range.TOP: FSProtos.Reference.Range.BOTTOM);
-    builder.setSplitkey(ByteString.copyFrom(getSplitKey()));
+    // note that this means ordinal here must match the proto description
+    builder.setRange(FSProtos.Reference.Range.valueOf(getFileRegion().ordinal()));
+    // TODO go back to the original here to check for failure propagation
+    builder.setSplitkey(ByteString.copyFrom(getSplitKey() == null ? new byte[0] : getSplitKey()));
     return builder.build();
   }
 
   static Reference convert(final FSProtos.Reference r) {
     Reference result = new Reference();
     result.splitkey = r.getSplitkey().toByteArray();
-    result.region = r.getRange() == FSProtos.Reference.Range.TOP? Range.top: Range.bottom;
+    result.region = Range.values()[r.getRange().ordinal()];
     return result;
   }
 

@@ -139,7 +139,7 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
         try {
           LOG.debug("Snapshot isn't finished.");
           LOG.debug(status.getStatus());
-          Thread.sleep(wakeFrequency);
+          Thread.sleep(wakeFrequency * 5);
         } catch (InterruptedException e) {
           // ignore
         }

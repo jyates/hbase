@@ -33,6 +33,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.hbase.Abortable;
+import org.apache.hadoop.hbase.DaemonThreadFactory;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
@@ -127,7 +128,8 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
     // XXX - do we need to define our own custom thread factory?
     RegionSnapshotPool snapshotPool = new RegionSnapshotPool(new ThreadPoolExecutor(1,
         maxSnapshotThreads, maxSnapshotKeepAlive, TimeUnit.SECONDS,
-        new SynchronousQueue<Runnable>(), Executors.defaultThreadFactory()), this, wakeFrequency);
+        new SynchronousQueue<Runnable>(), new DaemonThreadFactory("rs-snapshot-pool")), this,
+        wakeFrequency);
     
     // setup the request handler
     requestHandlerFactory = new SnapshotRequestHandler.Factory(parent.getWAL(),
@@ -253,7 +255,7 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
           + " Region servers have already been released, so snapshot will only fail globally.");
     }
     // 3. remove the snapshot from the ones we running
-    LOG.debug("Going to clenaup the snapshot locally.");
+    LOG.debug("Cleaning up local snapshot information.");
     cleanupSnapshot(snapshot);
   }
 

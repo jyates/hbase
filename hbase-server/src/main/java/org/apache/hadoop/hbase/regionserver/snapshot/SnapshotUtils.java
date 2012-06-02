@@ -65,6 +65,7 @@ public class SnapshotUtils {
     } else {
       LOG.debug("Creating new reference file for: " + srcFile);
       referenceFile = createReferenceFile(fs, srcFile, dstDir);
+      LOG.debug("Created reference file.");
     }
     return referenceFile;
   }
@@ -73,11 +74,12 @@ public class SnapshotUtils {
       throws IOException {
     // A reference to the entire store file.
     Reference r = new Reference(null, Range.whole);
-
+    LOG.debug("Created reference object.");
     String parentTableName = srcFile.getParent().getParent().getParent().getName();
     // Write reference with same file id only with the other table name+ // as
     // suffix.
     Path p = new Path(dstDir, srcFile.getName() + "." + parentTableName);
+    LOG.debug("Got final name:" + p);
     return r.write(fs, p);
   }
 

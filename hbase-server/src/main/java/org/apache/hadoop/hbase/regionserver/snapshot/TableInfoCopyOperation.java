@@ -51,6 +51,7 @@ public class TableInfoCopyOperation extends SnapshotOperation<TableInfoStatus> {
   @Override
   public void run() {
     try {
+      LOG.debug("Attempting to copy table info for snapshot:" + this.snapshot);
       // 0. get the HTable descriptor
       HTableDescriptor orig = FSTableDescriptors.getTableDescriptor(fs, rss.getRootDir(),
         this.snapshot.getTableName());

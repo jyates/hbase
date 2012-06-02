@@ -62,6 +62,7 @@ public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor>
   @Override
   public void run() {
     // Iterate through each of the log files and add a reference to it.
+    if (LOG.isDebugEnabled()) LOG.debug("Adding references for WAL files:" + this.files);
     for (Path file : files) {
       try {
         checkFailure();
