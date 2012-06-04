@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -126,11 +127,16 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
 
     // create the snapshot requester and associated pool
     // XXX - do we need to define our own custom thread factory?
-    RegionSnapshotPool snapshotPool = new RegionSnapshotPool(new ThreadPoolExecutor(1,
-        maxSnapshotThreads, maxSnapshotKeepAlive, TimeUnit.SECONDS,
-        new SynchronousQueue<Runnable>(), new DaemonThreadFactory("rs-snapshot-pool")), this,
-        wakeFrequency);
-    
+    ExecutorService service;
+    if (maxSnapshotThreads <= 1) {
+      LOG.debug("Need at least two threads to run a snapshot, upping the max value to 2");
+     maxSnapshotThreads = 2;
+    } 
+      service = new ThreadPoolExecutor(1, maxSnapshotThreads, maxSnapshotKeepAlive,
+ TimeUnit.SECONDS,
+        new SynchronousQueue<Runnable>(), new DaemonThreadFactory("rs("
+            + this.parent.getServerName().toString() + ")-snapshot-pool"));
+    RegionSnapshotPool snapshotPool = new RegionSnapshotPool(service, this, wakeFrequency);
     // setup the request handler
     requestHandlerFactory = new SnapshotRequestHandler.Factory(parent.getWAL(),
         new SnapshotFailureMonitorFactory(maxSnapshotWaitTime, globalSnapshotFailure, this),

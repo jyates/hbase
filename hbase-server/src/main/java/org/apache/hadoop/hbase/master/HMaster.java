@@ -47,6 +47,9 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Chore;
 import org.apache.hadoop.hbase.ClusterStatus;
@@ -97,7 +100,6 @@ import org.apache.hadoop.hbase.master.handler.TableDeleteFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableEventHandler;
 import org.apache.hadoop.hbase.master.handler.TableModifyFamilyHandler;
 import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
-import org.apache.hadoop.hbase.master.snapshot.DeleteSnapshot;
 import org.apache.hadoop.hbase.master.snapshot.SnapshotManager;
 import org.apache.hadoop.hbase.master.snapshot.SnapshotSentinel;
 import org.apache.hadoop.hbase.monitoring.MemoryBoundedLogMessageBuffer;
@@ -110,6 +112,7 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
+import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.HasThread;
 import org.apache.hadoop.hbase.util.InfoServer;
 import org.apache.hadoop.hbase.util.Pair;
@@ -502,7 +505,6 @@ Server {
     // TODO do we really need a full reference to the master or can we pull out
     // an interface? MasterFileSystem seems to mostly what it needs
     this.snapshotManager = new SnapshotManager(this, zooKeeper);
-    zooKeeper.registerListener(snapshotManager.getController());
   }
 
   /**
@@ -1068,18 +1070,28 @@ Server {
     Path snapshotDir = SnapshotDescriptor.getCompletedSnapshotDir(hsd, this.getMasterFileSystem()
         .getRootDir());
 
+    // check to see if the snapshot already exists
     if (this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
       throw new SnapshotExistsException("Snapshot " + hsd.getSnapshotNameAsString()
           + " already exists.");
     }
 
-    // first write down the snapshot info in the .tmp directory
+    // then check to see if its already in progress
     Path workingDir = SnapshotDescriptor.getWorkingSnapshotDir(hsd, this.getMasterFileSystem()
         .getRootDir());
+    if (this.getMasterFileSystem().getFileSystem().exists(workingDir)) {
+      throw new SnapshotExistsException("Snapshot " + hsd.getSnapshotNameAsString()
+          + " already in progress.");
+    }
+
+    // write down the snapshot info in the .tmp directory
+    if (!this.getMasterFileSystem().getFileSystem().mkdirs(workingDir)) {
+      throw new IOException("Could not create snapshot directory: " + workingDir);
+    }
     SnapshotDescriptor.write(hsd, workingDir, this.getMasterFileSystem().getFileSystem());
 
     try {
-      // then check to see how we should do the snapshot - online or offline
+      // check to see how we should do the snapshot - online or offline
       // if the table is online, then have the RS handle the transition
 
       if (this.assignmentManager.getZKTable().isEnabledTable(
@@ -1087,7 +1099,7 @@ Server {
         // get the snapshot monitor
         SnapshotSentinel sentinel = snapshotManager.startSnapshot(hsd);
         // and wait for the snapshot to finish (blocking)
-        sentinel.waitToFinish();
+        sentinel.run();
         LOG.debug("Sentinel is done, just moving the snapshot from " + workingDir + " to "
             + snapshotDir);
         // finally move the snapshot to the completed location
@@ -1120,25 +1132,39 @@ Server {
   }
 
   /**
-   * List the currently available/stored snapshots
+   * List the currently available/stored snapshots. Any in-progress snapshots
+   * are ignored
    */
-  public SnapshotDescriptor[] listSnapshots() throws IOException{
-    List<SnapshotDescriptor> snapshotList =
-      new ArrayList<SnapshotDescriptor>();
-    // TODO implement this method
-    /*
-     * Path snapshotRoot = SnapshotDescriptor.getSnapshotRootDir(rootdir);
-     * FileStatus[] snapshots = fs.listStatus(snapshotRoot, new
-     * FSUtils.DirFilter(fs)); for (FileStatus snapshot : snapshots) { Path info
-     * = new Path(snapshot.getPath(), SnapshotDescriptor.SNAPSHOTINFO_FILE);
-     * FSDataInputStream in = null; try { in = fs.open(info); SnapshotDescriptor
-     * hsd = new SnapshotDescriptor(); hsd.readFields(in);
-     * snapshotList.add(hsd); } catch (IOException e) {
-     * LOG.warn("Crashed snapshot " + snapshot.getPath().getName()); // TODO
-     * clean up the snapshot? } finally { if (in != null) { in.close(); } } }
-     * return snapshotList.toArray(new SnapshotDescriptor[snapshotList.size()]);
-     */
-    return snapshotList.toArray(new SnapshotDescriptor[0]);
+  public SnapshotDescriptor[] listSnapshots() throws IOException {
+    List<SnapshotDescriptor> snapshotList = new ArrayList<SnapshotDescriptor>();
+    // first create the snapshot description and check to see if it exists
+    Path snapshotDir = SnapshotDescriptor.getSnapshotDir(this.getMasterFileSystem().getRootDir());
+    // check to see if the snapshot already exists
+    if (!this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
+      return new SnapshotDescriptor[0];
+    }
+    FileSystem fs = this.getMasterFileSystem().getFileSystem();
+
+    FileStatus[] snapshots = fs.listStatus(snapshotDir, new FSUtils.DirFilter(fs));
+    for (FileStatus snapshot : snapshots) {
+      Path info = new Path(snapshot.getPath(), SnapshotDescriptor.SNAPSHOTINFO_FILE);
+      // skip all the unfinished snapshots
+      if (!fs.exists(info)) continue;
+      FSDataInputStream in = null;
+      try {
+        in = fs.open(info);
+        SnapshotDescriptor hsd = new SnapshotDescriptor();
+        hsd.readFields(in);
+        snapshotList.add(hsd);
+      } catch (IOException e) {
+        LOG.warn("Crashed snapshot " + snapshot.getPath().getName());
+      } finally {
+        if (in != null) {
+          in.close();
+        }
+      }
+    }
+    return snapshotList.toArray(new SnapshotDescriptor[snapshotList.size()]);
   }
 
   public void restoreSnapshot(final byte[] snapshotName) throws IOException {
@@ -1160,11 +1186,23 @@ Server {
   }
 
   /**
-   * Delete the named snapshot
+   * Delete the named snapshot, it if exists
    */
   public void deleteSnapshot(final byte[] snapshotName) throws IOException {
     LOG.debug("Deleting snapshot: " + Bytes.toString(snapshotName));
-    new DeleteSnapshot(this, snapshotName).process();
+    // first create the snapshot description and check to see if it exists
+    Path snapshotDir = SnapshotDescriptor.getCompletedSnapshotDir(snapshotName, this.getMasterFileSystem()
+        .getRootDir());
+
+    // check to see if the snapshot already exists
+    if (!this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
+      LOG.warn("Attempted to delete snapshot:"
+          + SnapshotDescriptor.convertNameToString(snapshotName));
+      return;
+    }
+
+    // delete the existing snapshot
+    this.getMasterFileSystem().getFileSystem().delete(snapshotDir, true);
   }
 
   /**

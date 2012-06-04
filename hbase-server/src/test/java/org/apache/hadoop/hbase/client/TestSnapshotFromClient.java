@@ -77,6 +77,8 @@ public class TestSnapshotFromClient {
     conf.setInt("hbase.hstore.blockingStoreFiles", 12);
     // drop the number of attempts for the hbase admin
     conf.setInt("hbase.client.retries.number", 1);
+    // set the number of threads to use for taking the snapshot
+    conf.setInt(HConstants.SNAPSHOT_REQUEST_THREADS, 2);
   }
 
   @Before
@@ -110,6 +112,8 @@ public class TestSnapshotFromClient {
   public void testCreateListDestroy() throws Exception {
     LOG.debug("------- Starting Snapshot test -------------");
     HBaseAdmin admin = UTIL.getHBaseAdmin();
+    // make sure we don't fail on listing snapshots
+    assertEquals(0, admin.listSnapshots().length);
     // load the table so we have some data
     UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
     // and wait until everything stabilizes
@@ -132,6 +136,9 @@ public class TestSnapshotFromClient {
     
     // test that we can delete the snapshot
     admin.deleteSnapshot(snapshot);
+
+    // make sure we don't fail on listing snapshots
+    assertEquals(0, admin.listSnapshots().length);
   }
 
   private void logFSTree(Path root) throws IOException {

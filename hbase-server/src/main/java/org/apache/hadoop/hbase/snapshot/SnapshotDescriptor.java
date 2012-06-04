@@ -1,6 +1,4 @@
 /**
- * Copyright 2010 The Apache Software Foundation
- *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,7 +25,6 @@ import java.util.Map;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.ClusterOperation;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.Writable;
@@ -49,6 +46,9 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
   private byte[] snapshotName;
   private byte[] tableName;
   private long creationTime;
+
+  /** Used to construct the name of the snapshot directory */
+  public static final String SNAPSHOT_DIR = ".snapshot";
 
   /**
    * Default constructor which is only used for deserialization
@@ -95,7 +95,7 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
 
   /** @return name of snapshot as String */
   public String getSnapshotNameAsString() {
-    return Bytes.toString(snapshotName);
+    return convertNameToString(snapshotName);
   }
 
   /** @return name of table */
@@ -168,7 +168,7 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
    * @return the base directory in which all snapshots are kept
    */
   public static Path getSnapshotRootDir(final Path rootDir) {
-    return new Path(rootDir, HConstants.SNAPSHOT_DIR);
+    return new Path(rootDir, SnapshotDescriptor.SNAPSHOT_DIR);
   }
 
   /**
@@ -187,12 +187,12 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
    * Get the directory for a completed snapshot. This directory is a
    * sub-directory of snapshot root directory and all the data files for a
    * snapshot are kept under this directory.
-   * @param snapshot snapshot being taken
+   * @param snapshotName name of the snapshot being taken
    * @param rootDir hbase root directory
    * @return the final directory for the completed snapshot
    */
   public static Path getCompletedSnapshotDir(final byte[] snapshotName, final Path rootDir) {
-    return getSnapshotDir(snapshotName, new Path(rootDir, HConstants.SNAPSHOT_DIR));
+    return getSnapshotDir(snapshotName, getSnapshotDir(rootDir));
   }
 
   /**
@@ -202,9 +202,8 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
    * @return {@link Path} where one can build a snapshot
    */
   public static Path getWorkingSnapshotDir(SnapshotDescriptor snapshot, final Path rootDir) {
-    return getSnapshotDir(snapshot.snapshotName, new Path(
-        new Path(rootDir, HConstants.SNAPSHOT_DIR),
-        SNAPSHOT_TMP_DIR));
+    return getSnapshotDir(snapshot.snapshotName,
+      new Path(getSnapshotDir(rootDir), SNAPSHOT_TMP_DIR));
   }
 
   /**
@@ -215,6 +214,14 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
    */
   private static final Path getSnapshotDir(byte[] snapshotName, final Path snapshots) {
     return new Path(snapshots, Bytes.toString(snapshotName));
+  }
+
+  /**
+   * @param rootDir hbase root directory
+   * @return the directory for all completed snapshots;
+   */
+  public static final Path getSnapshotDir(Path rootDir) {
+    return new Path(rootDir, SnapshotDescriptor.SNAPSHOT_DIR);
   }
 
   @Override
@@ -238,5 +245,9 @@ public class SnapshotDescriptor extends ClusterOperation implements Writable,
     if (diff != 0) return diff;
 
     return new Long(creationTime).compareTo(other.creationTime);
+  }
+
+  public static String convertNameToString(byte[] snapshotName) {
+    return Bytes.toString(snapshotName);
   }
 }

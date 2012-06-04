@@ -47,7 +47,7 @@ public class RegionZKSnapshotController extends ZKSnapshotController {
 
   @Override
   public void nodeChildrenChanged(String path) {
-    LOG.info("Recieved children changed event:" + path);
+    LOG.info("Received children changed event:" + path);
     // if a new snapshot is starting
     try {
       if (path.startsWith(startSnapshotBarrier)) {
@@ -73,9 +73,6 @@ public class RegionZKSnapshotController extends ZKSnapshotController {
     try {
       for (String snapshotName : ZKUtil.listChildrenAndWatchForNewChildren(watcher,
         startSnapshotBarrier)) {
-        // watch for the complete node for this snapshot
-        String completeZNode = ZKUtil.joinZNode(endSnapshotBarrier, snapshotName);
-        ZKUtil.watchAndCheckExists(watcher, completeZNode);
         // then read in the snapshot information
         String path = ZKUtil.joinZNode(startSnapshotBarrier, snapshotName);
         byte[] data = ZKUtil.getData(watcher, path);
@@ -154,7 +151,8 @@ public class RegionZKSnapshotController extends ZKSnapshotController {
 
   /**
    * Join the snapshot barrier. Indicates that this server has completed its
-   * part of the snapshot and is now just waiting for others to complete
+   * part of the snapshot and is now just waiting for others to complete the
+   * snapshot
    * @param snapshot snapshot that has been completed
    * @throws KeeperException if an unexpected {@link KeeperException} occurs
    */
@@ -163,6 +161,10 @@ public class RegionZKSnapshotController extends ZKSnapshotController {
     String joinPath = ZKUtil.joinZNode(ZKUtil.joinZNode(startSnapshotBarrier,
       snapshot.getSnapshotNameAsString()), parent.getServerName().toString());
     ZKUtil.createAndFailSilent(watcher, joinPath);
+
+    // watch for the complete node for this snapshot
+    String completeZNode = ZKUtil.joinZNode(endSnapshotBarrier, snapshot.getSnapshotNameAsString());
+    ZKUtil.watchAndCheckExists(watcher, completeZNode);
   }
 
   /**

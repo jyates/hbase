@@ -36,7 +36,7 @@ public class WALSnapshotMonitor extends SnapshotStatus {
 
   @Override
   public String getStatus() {
-    return "Completed referencing" + completed + " of " + expected + " WAL files.";
+    return "Completed referencing " + completed + " of " + expected + " WAL files.";
   }
 
   @Override

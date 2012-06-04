@@ -2,6 +2,7 @@ package org.apache.hadoop.hbase.regionserver.snapshot;
 
 import java.io.Closeable;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import org.apache.commons.logging.Log;
@@ -21,11 +22,11 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 public class RegionSnapshotPool implements Closeable {
   static final Log LOG = LogFactory.getLog(RegionSnapshotPool.class);
 
-  private final ThreadPoolExecutor pool;
+  private final ExecutorService pool;
   final SnapshotFailureListener listener;
   private final long wakeFrequency;
 
-  public RegionSnapshotPool(ThreadPoolExecutor threads, SnapshotFailureListener listener,
+  public RegionSnapshotPool(ExecutorService threads, SnapshotFailureListener listener,
       long wakeFrequency) {
     this.pool = threads;
     this.listener = listener;

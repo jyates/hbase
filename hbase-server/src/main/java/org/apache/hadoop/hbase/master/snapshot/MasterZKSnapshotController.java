@@ -1,26 +1,33 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.hadoop.hbase.master.snapshot;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map.Entry;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.server.snapshot.ZKSnapshotController;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
-import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.KeeperException;
-
-import com.google.common.base.Function;
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Multimap;
 
 /**
  * Controller between zookeeper and the snapshot manager for the master.
@@ -57,14 +64,15 @@ public class MasterZKSnapshotController extends ZKSnapshotController {
   public void nodeChildrenChanged(String path) {
     if (!path.startsWith(watcher.snapshotZNode)) return;
     try {
+
       LOG.debug("Children changed for node:" + path);
+      LOG.debug("Current start tree:");
+      logFSTree(startSnapshotBarrier);
       if (path.startsWith(startSnapshotBarrier)) {
         childrenJoinedSnapshot(ZKUtil.listChildrenAndWatchForNewChildren(watcher, path));
       } else if (path.startsWith(endSnapshotBarrier)) {
         childrenCompletedSnapshot(ZKUtil.listChildrenAndWatchForNewChildren(watcher, path));
-      }
-      // and if anything rs aborts
-      else if (path.startsWith(abortZnode)) {
+      } else if (path.startsWith(abortZnode)) {
         for (String child : ZKUtil.listChildrenAndWatchForNewChildren(watcher, path)) {
           this.manager.rsAbortedSnapshot(child);
         }
@@ -72,6 +80,21 @@ public class MasterZKSnapshotController extends ZKSnapshotController {
     } catch (KeeperException e) {
       // simple catch-all incase of losing zk connection
       throw new RuntimeException(e);
+    }
+  }
+
+  private void logFSTree(String root) throws KeeperException {
+    LOG.debug("Current zk system:");
+    logFSTree(root, "|-");
+  }
+
+  private void logFSTree(String root, String prefix) throws KeeperException {
+    List<String> children = ZKUtil.listChildrenNoWatch(watcher, root);
+    if(children == null)
+      return;
+    for (String child : children) {
+      LOG.debug(prefix + child + "/");
+      logFSTree(ZKUtil.joinZNode(root, child), prefix + "---");
     }
   }
 

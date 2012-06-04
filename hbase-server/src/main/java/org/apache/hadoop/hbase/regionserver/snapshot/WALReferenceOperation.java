@@ -95,6 +95,5 @@ public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor>
       }
     }
     LOG.debug("Completed WAL referencing for ALL files");
-
   }
 }

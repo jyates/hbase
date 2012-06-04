@@ -19,10 +19,9 @@ package org.apache.hadoop.hbase.regionserver.snapshot;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.print.attribute.standard.Finishings;
+import java.util.concurrent.RejectedExecutionException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -38,9 +37,6 @@ import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-
-import com.google.common.base.Function;
-import com.google.common.collect.Lists;
 
 /**
  * Handle the actual snapshot manipulations on the regionserver for a single
@@ -88,16 +84,12 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
     long now = EnvironmentEdgeManager.currentTimeMillis();
     this.monitor = statusMonitorFactory.create(now);
     final SnapshotStatusMonitor monitor = this.monitor;
-
     try {
       // 1. create an operation for each region
-      this.ops = Lists.transform(regions,
-        new Function<HRegion, RegionSnapshotOperation>() {
-          @Override
-          public RegionSnapshotOperation apply(HRegion input) {
-            return new RegionSnapshotOperation(monitor, snapshot, input);
-          }
-        });
+      this.ops = new ArrayList<RegionSnapshotOperation>(regions.size());
+      for (HRegion region : regions) {
+        ops.add(new RegionSnapshotOperation(monitor, snapshot, region));
+      }
 
       // 2. submit those operations to the region snapshot runner
       RegionSnapshotOperationStatus status = regionRunner.submitRegionSnapshotWork(snapshot, monitor, ops);
@@ -135,16 +127,21 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
 
       LOG.debug("Wating for snapshot to finish.");
       // 4. Wait for the regions and the wal to complete or an error
-      while (!status.isDone()) {
+      while (!monitor.isDone()) {
         try {
           LOG.debug("Snapshot isn't finished.");
-          LOG.debug(status.getStatus());
+          LOG.debug(monitor.getStatus());
           Thread.sleep(wakeFrequency * 5);
         } catch (InterruptedException e) {
           // ignore
         }
       }
       LOG.debug("Snapshot completed on regionserver.");
+    } catch (RejectedExecutionException e) {
+      // update the failure status so we bail everything
+      LOG.error("Failing snapshot because we couldn't run a part of the snapshot", e);
+      monitor.localSnapshotFailure(snapshot, "Somehow failed snapshot creation:" + e.getMessage());
+      return false;
     } catch (SnapshotCreationException e) {
       // update the failure status so we bail everything
       LOG.error("Failing snapshot because got creation exception", e);
@@ -169,6 +166,7 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
       LOG.debug("No regions to release from the snapshot because we didn't get a chance to create them.");
       return;
     }
+    LOG.debug("Releasing local barrier for snapshot.");
     for (RegionSnapshotOperation op : ops) {
       op.finish();
     }

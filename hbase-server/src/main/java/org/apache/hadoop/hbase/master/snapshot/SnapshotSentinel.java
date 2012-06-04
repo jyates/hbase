@@ -1,6 +1,4 @@
 /**
- * Copyright 2010 The Apache Software Foundation
- *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,16 +20,14 @@ package org.apache.hadoop.hbase.master.snapshot;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.master.HMaster;
-import org.apache.hadoop.hbase.master.MasterFileSystem;
-import org.apache.hadoop.hbase.regionserver.snapshot.exception.SnapshotTimeoutException;
-import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 
@@ -44,6 +40,18 @@ import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
  */
 @InterfaceAudience.Private
 public class SnapshotSentinel {
+  /**
+   * Status of snapshot over the cluster. The end status of snapshot is
+   * <code>ALL_RS_FINISHED</code> or <code>ABORTED</code>.
+   */
+  public static enum GlobalSnapshotStatus {
+    INIT, // snapshot is just started over the cluster
+    RS_PREPARING_SNAPSHOT, // some RS are still preparing the snapshot
+    RS_COMMITTING_SNAPSHOT, // RS are committing the snapshot
+    ALL_RS_FINISHED, // all RS have finished committing the snapshot
+    ABORTING; // abort the snapshot over the cluster
+  }
+
   /** By default, wait 30 seconds for a snapshot to complete */
   private static final long DEFAULT_MAX_WAIT_TIME = 30000;
   /** Max amount of time to wait for a snapshot to complete (milliseconds) */
@@ -62,7 +70,6 @@ public class SnapshotSentinel {
 
   // current status of snapshot
   private volatile GlobalSnapshotStatus status;
-  private Object statusNotifier = new Object();
 
 
   /**
@@ -79,6 +86,9 @@ public class SnapshotSentinel {
   private List<String> waitToFinish = new LinkedList<String>();
 
   private final MasterSnapshotStatusListener progressListener;
+  private CountDownLatch prepareLatch;
+  private CountDownLatch completeLatch;
+  private boolean failure;
 
   /**
    * Create the sentinel to montior the given snapshot on the table
@@ -99,20 +109,12 @@ public class SnapshotSentinel {
     this.hsd = hsd;
     this.status = GlobalSnapshotStatus.INIT;
 
-    // create the base directory for this snapshot-in-progress
-    MasterFileSystem mfs = master.getMasterFileSystem();
-    Path snapshotDir = SnapshotDescriptor.getWorkingSnapshotDir(hsd, mfs.getRootDir());
-    if (!mfs.getFileSystem().mkdirs(snapshotDir)) {
-      throw new IOException("Could not create snapshot directory: " + snapshotDir);
-    }
-
     // setup the expected servers to join this snapshot
     this.waitToPrepare = list;
+    this.prepareLatch = new CountDownLatch(list.size());
+    this.completeLatch = new CountDownLatch(list.size());
 
     this.progressListener = listener;
-
-    // dump snapshot info
-    SnapshotDescriptor.write(hsd, snapshotDir, mfs.getFileSystem());
   }
 
   /**
@@ -120,18 +122,19 @@ public class SnapshotSentinel {
    */
   public void abort() {
     LOG.error("Aborting snapshot!");
+    this.failure = true;
     this.setStatus(GlobalSnapshotStatus.ABORTING);
   }
 
   public void serverJoinedSnapshot(String rsID) {
     LOG.debug("server:" + rsID + " joined snapshot on sentinel.");
     if (this.waitToPrepare.remove(ServerName.parseServerName(rsID))) {
+      this.prepareLatch.countDown();
       this.waitToFinish.add(rsID);
       // now check the length to see if we are done
-      if (this.waitToPrepare.size() == 0) {
-        this.setStatus(GlobalSnapshotStatus.RS_COMMITTING_SNAPSHOT);
-        this.progressListener.allServersPreparedSnapshot();
-      } else this.setStatus(GlobalSnapshotStatus.RS_PREPARING_SNAPSHOT);
+      if (this.waitToPrepare.size() > 0) {
+        setStatus(GlobalSnapshotStatus.RS_PREPARING_SNAPSHOT);
+      }
     } else {
       LOG.warn("Server: " + rsID + " joined snapshot, but we weren't waiting on it to join.");
     }
@@ -139,24 +142,10 @@ public class SnapshotSentinel {
 
   public void serverCompletedSnapshot(String rsID) {
     if (this.waitToFinish.remove(rsID)) {
-      // now check the length to see if we are done
-      if (this.waitToFinish.size() == 0) {
-        this.setStatus(GlobalSnapshotStatus.ALL_RS_FINISHED);
-        //
-      }
+      this.completeLatch.countDown();
     } else {
       LOG.warn("Server: " + rsID + " joined snapshot, but we weren't waiting on it to join.");
     }
-  }
-
-  /** @return status of the snapshot */
-  GlobalSnapshotStatus getStatus() {
-    return this.status;
-  }
-
-  private void setStatus(GlobalSnapshotStatus status) {
-    this.status = status;
-    this.interruptWaiting();
   }
 
   /** @return the snapshot descriptor for this snapshot */
@@ -166,63 +155,71 @@ public class SnapshotSentinel {
 
   /**
    * Kickoff the snapshot and wait for the regionservers to finish.
-   * <p>
-   * Timeout after maxRetries * 3000 ms. Increase maxRetries if snapshot always
-   * timeout.
-   * 
-   * @throws SnapshotCreationException if timeout or snapshot is aborted or
-   *           waiting is interrupted
    */
-  public void waitToFinish() throws SnapshotCreationException {
-    try {
-      long now = EnvironmentEdgeManager.currentTimeMillis();
-
-      synchronized (statusNotifier) {
-        while (!status.equals(GlobalSnapshotStatus.ALL_RS_FINISHED)
-            && !status.equals(GlobalSnapshotStatus.ABORTING)) {
-          checkExceedsTimeout(now);
-          LOG.debug("Waiting on snapshot: " + hsd + " to finish...");
-          LOG.debug("\t expecting to prepare:" + this.waitToPrepare);
-          LOG.debug("\t expecting to finish:" + this.waitToFinish);
-          statusNotifier.wait(wakeFrequency);
-        }
-        if (status.equals(GlobalSnapshotStatus.ABORTING)) {
-          throw new SnapshotCreationException("Snapshot is aborted: " + hsd);
-        }
+  public void run() {
+    // wait on the prepare phase
+    long now = EnvironmentEdgeManager.currentTimeMillis();
+    while (waitToPrepare.size() > 0) {
+      try {
+        this.prepareLatch.await(wakeFrequency, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException e) {
+        // Ignore interruptions
       }
-    } catch (InterruptedException e) {
-      throw new SnapshotCreationException("Master thread is interrupted for snapshot: " + hsd, e);
+      // check to make sure we should go on
+      if (this.checkExceedsTimeout(now) || this.failure) {
+        LOG.error("Snapshot failed - quiting sentinel");
+        return;
+      }
     }
-    LOG.debug("Done waiting  - snapshot finished!");
+    this.setStatus(GlobalSnapshotStatus.RS_COMMITTING_SNAPSHOT);
+    this.progressListener.allServersPreparedSnapshot();
+    // wait for all the regions to complete
+    while (waitToFinish.size() > 0) {
+      try {
+        this.completeLatch.await(wakeFrequency, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException e) {
+        // Ignore interruptions
+      }
+      // check to make sure we should go on
+      if (this.checkExceedsTimeout(now) || this.failure) {
+        LOG.error("Snapshot failed - quiting sentinel");
+        return;
+      }
+    }
+    this.setStatus(GlobalSnapshotStatus.ALL_RS_FINISHED);
+    LOG.info("Done waiting - snapshot finished!");
   }
 
-  private void checkExceedsTimeout(long start) throws SnapshotTimeoutException {
+
+  private boolean checkExceedsTimeout(long start) {
     long current = EnvironmentEdgeManager.currentTimeMillis();
     if ((current - start) > maxWait) {
-      throw new SnapshotTimeoutException(maxWait, current - start);
+      LOG.debug("Max wait (" + maxWait + ") exceeded wait time (current - start)");
+      return true;
     }
+    return false;
 }
 
-  void interruptWaiting() {
-    synchronized (statusNotifier) {
-      statusNotifier.notify();
-    }
+  /** @return status of the snapshot */
+  GlobalSnapshotStatus getStatus() {
+    return this.status;
   }
+
+  private void setStatus(GlobalSnapshotStatus status) {
+    this.status = status;
+    logRegionServerProgress();
+  }
+
+  private void logRegionServerProgress() {
+    LOG.debug("Waiting on snapshot: " + hsd + " to finish...");
+    LOG.debug("Currently in phase:" + this.getStatus());
+    LOG.debug("\t expecting to prepare:" + this.waitToPrepare);
+    LOG.debug("\t expecting to finish:" + this.waitToFinish);
+  }
+
 
   @Override
   public String toString() {
     return hsd.toString();
-  }
-
-  /**
-   * Status of snapshot over the cluster. The end status of snapshot is
-   * <code>ALL_RS_FINISHED</code> or <code>ABORTED</code>.
-   */
-  public static enum GlobalSnapshotStatus {
-    INIT, // snapshot is just started over the cluster
-    RS_PREPARING_SNAPSHOT, // some RS are still preparing the snapshot
-    RS_COMMITTING_SNAPSHOT, // RS are committing the snapshot
-    ALL_RS_FINISHED, // all RS have finished committing the snapshot
-    ABORTING; // abort the snapshot over the cluster
   }
 }

@@ -65,7 +65,7 @@ public class SnapshotStatusMonitor extends SnapshotStatus implements SnapshotFai
   public String getStatus() {
     StringBuilder sb = new StringBuilder("Snapshot status:\n");
     for (SnapshotStatus status : progressStatus) {
-      sb.append(status.getStatus());
+      sb.append(status.getStatus()+"\n");
     }
     return sb.toString();
   }

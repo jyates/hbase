@@ -238,9 +238,6 @@ public final class HConstants {
   public static final String HREGION_MAX_FILESIZE =
       "hbase.hregion.max.filesize";
 
-  /** Used to construct the name of the snapshot directory */
-  public static final String SNAPSHOT_DIR = ".snapshot";
-
   /**
    * Used to construct the name of the archive directory for HFiles
    * which are still referenced by snapshots.
