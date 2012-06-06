@@ -15,40 +15,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.regionserver.snapshot.status;
+package org.apache.hadoop.hbase.regionserver.snapshot.exception;
 
 import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 
 /**
- * Monitor status for the progress on a single region's snapshot
+ * Exception indicating that the current snapshot attempt was stopped due to an
+ * external cause
  */
-public class RegionSnapshotStatus extends SnapshotStatus {
+@SuppressWarnings("serial")
+public class ExternalSnapshotCreationException extends SnapshotCreationException {
 
-  private final RegionSnapshotOperationStatus parent;
-  private boolean completedSnapshot;
-  public RegionSnapshotStatus(RegionSnapshotOperationStatus parent) {
-    this.parent = parent;
+  public ExternalSnapshotCreationException() {
+    super("Snapshot failed to be created due to external causes.");
   }
 
-  /**
-   * Indicate that the region has completed the snapshot
-   */
-  public void completedSnapshot() {
-    this.completedSnapshot = true;
-  }
-
-  @Override
-  public String getStatus() {
-    try {
-      if (this.isDone()) return "Done!";
-    } catch (SnapshotCreationException e) {
-      return "snapshot creation exception!";
-    }
-    return "working...";
-  }
-
-  @Override
-  protected boolean checkDone() {
-    return completedSnapshot;
-  }
 }

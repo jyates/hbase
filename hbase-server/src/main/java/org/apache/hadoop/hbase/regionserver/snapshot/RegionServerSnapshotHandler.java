@@ -39,6 +39,8 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.FailureMonitorFactory;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.GlobalSnapshotFailureListener;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitorImpl.SnapshotFailureMonitorFactory;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
@@ -119,28 +121,25 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
       DEFAULT_SNAPSHOT_TIMEOUT);
     long wakeFrequency = getConf().getLong(HConstants.SNAPSHOT_REQUEST_WAKE_FREQUENCY_KEY,
       DEFAULT_WAKE_FREQUENCY);
+    long maxSnapshotKeepAlive = getConf().getLong(
+      HConstants.SNAPSHOT_THEAD_POOL_KEEP_ALIVE_SECONDS, DEFAULT_SNAPSHOT_THREAD_KEEP_ALIVE);
     int maxSnapshotThreads = getConf().getInt(HConstants.SNAPSHOT_REQUEST_THREADS,
       DEFAULT_SNAPSHOT_REQUEST_THREADS);
-    long maxSnapshotKeepAlive = getConf().getLong(
-      HConstants.SNAPSHOT_THEAD_POOL_KEEP_ALIVE_SECONDS,
-      DEFAULT_SNAPSHOT_THREAD_KEEP_ALIVE);
+    if (maxSnapshotThreads <= 1) {
+      LOG.debug("Need at least two threads to run a snapshot, upping the max value to 2");
+      maxSnapshotThreads = 2;
+    }
 
     // create the snapshot requester and associated pool
     // XXX - do we need to define our own custom thread factory?
-    ExecutorService service;
-    if (maxSnapshotThreads <= 1) {
-      LOG.debug("Need at least two threads to run a snapshot, upping the max value to 2");
-     maxSnapshotThreads = 2;
-    } 
-      service = new ThreadPoolExecutor(1, maxSnapshotThreads, maxSnapshotKeepAlive,
- TimeUnit.SECONDS,
+    ThreadPoolExecutor service;
+    service = new ThreadPoolExecutor(1, maxSnapshotThreads, maxSnapshotKeepAlive, TimeUnit.SECONDS,
         new SynchronousQueue<Runnable>(), new DaemonThreadFactory("rs("
             + this.parent.getServerName().toString() + ")-snapshot-pool"));
-    RegionSnapshotPool snapshotPool = new RegionSnapshotPool(service, this, wakeFrequency);
+
     // setup the request handler
-    requestHandlerFactory = new SnapshotRequestHandler.Factory(parent.getWAL(),
-        new SnapshotFailureMonitorFactory(maxSnapshotWaitTime, globalSnapshotFailure, this),
-        wakeFrequency, snapshotPool, this);
+    requestHandlerFactory = new SnapshotRequestHandler.Factory(parent.getWAL(), service,
+        maxSnapshotWaitTime, wakeFrequency);
   }
   
   @Override
@@ -196,8 +195,10 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
 
     LOG.debug("Have some regions involved in snapshot:" + involvedRegions);
     // 1. Create a snapshot request
+    // TODO create external monitor
+    SnapshotErrorMonitor externalMonitor = null;
     SnapshotRequestHandler handler = requestHandlerFactory.create(snapshot, involvedRegions,
-      this.parent);
+      this.parent, externalMonitor);
     // 2. add the request handler to the current request
     this.requests.put(snapshot, handler);
     // 3. add the request to listen for the failures on that snapshot

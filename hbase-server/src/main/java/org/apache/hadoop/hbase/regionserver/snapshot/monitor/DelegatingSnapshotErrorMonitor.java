@@ -15,40 +15,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.regionserver.snapshot.status;
-
-import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
+package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
 
 /**
- * Monitor status for the progress on a single region's snapshot
+ * Helper class to pass through checking for error to a delegate
+ * {@link SnapshotErrorMonitor}
  */
-public class RegionSnapshotStatus extends SnapshotStatus {
+public class DelegatingSnapshotErrorMonitor implements SnapshotErrorMonitor {
+  private final SnapshotErrorMonitor delegate;
 
-  private final RegionSnapshotOperationStatus parent;
-  private boolean completedSnapshot;
-  public RegionSnapshotStatus(RegionSnapshotOperationStatus parent) {
-    this.parent = parent;
-  }
-
-  /**
-   * Indicate that the region has completed the snapshot
-   */
-  public void completedSnapshot() {
-    this.completedSnapshot = true;
+  public DelegatingSnapshotErrorMonitor(SnapshotErrorMonitor delegate) {
+    this.delegate = delegate;
   }
 
   @Override
-  public String getStatus() {
-    try {
-      if (this.isDone()) return "Done!";
-    } catch (SnapshotCreationException e) {
-      return "snapshot creation exception!";
-    }
-    return "working...";
+  public boolean checkForError() {
+    return delegate.checkForError();
   }
 
   @Override
-  protected boolean checkDone() {
-    return completedSnapshot;
+  public <T> Class<T> getCaller() {
+    return delegate.getCaller();
   }
+
 }

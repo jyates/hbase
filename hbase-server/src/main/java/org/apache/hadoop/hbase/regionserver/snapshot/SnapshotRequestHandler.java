@@ -21,13 +21,20 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.FailureMonitorFactory;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RunningSnapshotErrorMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotTimeoutMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.GlobalSnapshotFailureListener;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotOperationStatus;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitorImpl.SnapshotFailureMonitorFactory;
@@ -52,25 +59,27 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
   private final HLog log;
   private final RegionServerServices rss;
 
-  private final SnapshotStatusMonitor.Factory statusMonitorFactory;
   private final long wakeFrequency;
-  private final RegionSnapshotPool regionRunner;
-  
+  private final ExecutorCompletionService<Void> taskPool;
+
   private SnapshotStatusMonitor monitor;
 
   private List<RegionSnapshotOperation> ops;
 
+  private FailureMonitorFactory failureMonitorFactory;
+
+  private int count = 0;
+
   public SnapshotRequestHandler(SnapshotDescriptor snapshot, List<HRegion> regions, HLog log,
-      RegionServerServices rss,
- SnapshotFailureMonitorFactory failureStatusFactory, long wakeFreq,
-      RegionSnapshotPool pool, SnapshotFailureListener parent) {
+      RegionServerServices rss, FailureMonitorFactory failureStatusFactory, long wakeFreq,
+      ExecutorService pool) {
     this.rss = rss;
     this.snapshot = snapshot;
     this.regions = regions;
     this.log = log;
-    this.regionRunner = pool;
-    this.statusMonitorFactory = new SnapshotStatusMonitor.Factory(failureStatusFactory, snapshot);
+    this.taskPool = new ExecutorCompletionService<Void>(pool);
     this.wakeFrequency = wakeFreq;
+    this.failureMonitorFactory = failureStatusFactory;
   }
 
   /**
@@ -78,42 +87,40 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
    *         otherwise
    */
   public boolean start() {
-
     // create the monitor we are going to pass to all the snapshots, counting
     // "now" as starting the snapshot
     long now = EnvironmentEdgeManager.currentTimeMillis();
-    this.monitor = statusMonitorFactory.create(now);
+    RunningSnapshotErrorMonitor failureMonitor = failureMonitorFactory
+        .getRunningSnapshotFailureMonitor();
+    // create a timeout monitor so we can check for timeout issues
+    @SuppressWarnings("rawtypes")
+    SnapshotTimeoutMonitor timeoutMonitor = failureMonitorFactory.getTimerErrorMonitor(
+      failureMonitor, now);
     final SnapshotStatusMonitor monitor = this.monitor;
+    RegionSnapshotOperationStatus status = new RegionSnapshotOperationStatus(snapshot,
+        regions.size());
     try {
       // 1. create an operation for each region
       this.ops = new ArrayList<RegionSnapshotOperation>(regions.size());
       for (HRegion region : regions) {
-        ops.add(new RegionSnapshotOperation(monitor, snapshot, region));
+        // TODO create a failure monitor for the region
+        ops.add(new RegionSnapshotOperation(snapshot, region, null, status));
       }
 
       // 2. submit those operations to the region snapshot runner
-      RegionSnapshotOperationStatus status = regionRunner.submitRegionSnapshotWork(snapshot, monitor, ops);
-      // start monitoring the region snapshot status
-      monitor.addStatus(status);
+      for (RegionSnapshotOperation op : ops)
+        this.taskPool.submit(op, null);
+
 
       // 2.1 do the copy table async at the same time
-      monitor.checkFailure();
-      monitor.addStatus(regionRunner.submitSnapshotWork(new TableInfoCopyOperation(monitor,
-          snapshot, rss)));
+      if (failureMonitor.checkForError()) return false;
+      taskPool.submit((new TableInfoCopyOperation(monitor, snapshot, rss)), null);
 
       // wait for all the regions to become stable (no more writes) so we can
       // put a reliable snapshot point in the WAL
-      while (!status.allRegionsStable()) {
-        monitor.checkFailure();
-        try {
-          Thread.sleep(wakeFrequency);
-        } catch (InterruptedException e) {
-          // ignore
-        }
-      }
+      if(!status.waitForRegionsToStabilize(failureMonitor)) return false;
+      
       // 3. append an edit in the WAL marking our position
-      monitor.checkFailure();
-
       // append a marker for the snapshot to the walog
       // ensures the walog is synched to this point
       WALEdit edit = HLog.getSnapshotWALEdit();
@@ -122,38 +129,50 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
           .getTableDesc());
 
       // 3.1 asynchronously add reference for the WALs
-      monitor.addStatus(regionRunner.submitSnapshotWork(new WALReferenceOperation(snapshot,
-          monitor, this.log, rss)));
+      taskPool.submit(new WALReferenceOperation(snapshot,
+          monitor, this.log, rss), null);
 
       LOG.debug("Wating for snapshot to finish.");
       // 4. Wait for the regions and the wal to complete or an error
-      while (!monitor.isDone()) {
+      //wait for the regions to complete their snapshotting
+      status.checkDone(failureMonitor);
+      while (count > 0) {
         try {
           LOG.debug("Snapshot isn't finished.");
-          LOG.debug(monitor.getStatus());
-          Thread.sleep(wakeFrequency * 5);
+          if(failureMonitor.checkForError())
+          {
+            LOG.debug("Failure monitor noticed an error -  quitting " +
+            		"without waiting for snapshot tasks to complete.");
+            return false;
+          }
+          //wait for the next task to be completed
+          taskPool.take();
+          Thread.sleep(wakeFrequency);
         } catch (InterruptedException e) {
           // ignore
         }
       }
       LOG.debug("Snapshot completed on regionserver.");
     } catch (RejectedExecutionException e) {
-      // update the failure status so we bail everything
       LOG.error("Failing snapshot because we couldn't run a part of the snapshot", e);
-      monitor.localSnapshotFailure(snapshot, "Somehow failed snapshot creation:" + e.getMessage());
       return false;
     } catch (SnapshotCreationException e) {
-      // update the failure status so we bail everything
       LOG.error("Failing snapshot because got creation exception", e);
-      monitor.localSnapshotFailure(snapshot, "Somehow failed snapshot creation:" + e.getMessage());
       return false;
     } catch (IOException e) {
       LOG.error("Failing snapshot because got general IOException", e);
-      releaseSnapshotBarrier();
-      monitor.localSnapshotFailure(snapshot, "Somehow failed snapshot creation:" + e.getMessage());
       return false;
     }
+    timeoutMonitor.complete();
     return true;
+  }
+  
+  /**
+   * Submit a task to the pool. For speed, only 1 caller of this method is allowed, letting us avoid locking to increment the counter
+   */
+  private void submitTask(Runnable task) {
+    this.taskPool.submit(task, null);
+    this.count++;
   }
 
   /**
@@ -242,32 +261,27 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
    */
   static class Factory implements Closeable {
     private final HLog log;
-    private final SnapshotFailureMonitorFactory statusFactory;
     private final long wakeFrequency;
-    private final RegionSnapshotPool pool;
-    private final SnapshotFailureListener parent;
+    private final long maxWait;
+    private final ThreadPoolExecutor pool;
 
-    public Factory(HLog log, SnapshotFailureMonitorFactory statusFactory, long wakeFrequency,
-        RegionSnapshotPool pool, SnapshotFailureListener parent) {
+    public Factory(HLog log, ThreadPoolExecutor pool, long maxWait, long wakeFrequency) {
       super();
       this.log = log;
-      this.statusFactory = statusFactory;
       this.wakeFrequency = wakeFrequency;
       this.pool = pool;
-      this.parent = parent;
+      this.maxWait = maxWait;
     }
 
     public SnapshotRequestHandler create(SnapshotDescriptor desc, List<HRegion> regions,
-        RegionServerServices rss) {
-      return new SnapshotRequestHandler(desc, regions, log, rss, statusFactory, wakeFrequency,
-          pool,
-          parent);
+        RegionServerServices rss, SnapshotErrorMonitor externalMonitor) {
+      return new SnapshotRequestHandler(desc, regions, log, rss, new FailureMonitorFactory(
+          externalMonitor, maxWait), wakeFrequency, pool);
     }
 
     @Override
     public void close() {
-      this.pool.close();
+      this.pool.shutdownNow();
     }
-
   }
 }

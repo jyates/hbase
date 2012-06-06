@@ -24,6 +24,7 @@ import java.util.List;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitorImpl.SnapshotFailureMonitorFactory;
 import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
@@ -37,12 +38,12 @@ public class SnapshotStatusMonitor extends SnapshotStatus implements SnapshotFai
 
   private final List<SnapshotStatus> progressStatus = Collections
       .synchronizedList(new LinkedList<SnapshotStatus>());
-  private final SnapshotFailureMonitorImpl failureMonitor;
+  private final SnapshotErrorMonitor errorMonitor;
 
-  public SnapshotStatusMonitor(SnapshotFailureMonitorImpl failureStatus,
+  public SnapshotStatusMonitor(SnapshotErrorMonitor errorStatus,
       RegionSnapshotOperationStatus... snapshotStatus) {
     progressStatus.addAll(Arrays.asList(snapshotStatus));
-    this.failureMonitor = failureStatus;
+    this.errorMonitor = errorStatus;
   }
 
   public void addStatus(SnapshotStatus status) {
@@ -51,8 +52,6 @@ public class SnapshotStatusMonitor extends SnapshotStatus implements SnapshotFai
 
   @Override
   public boolean checkDone() throws SnapshotCreationException {
-    // first check to make sure we didn't fail
-    failureMonitor.checkFailure();
     // check each of the statuses
     for (SnapshotStatus status : progressStatus) {
       if (!status.isDone()) return false;
@@ -72,19 +71,19 @@ public class SnapshotStatusMonitor extends SnapshotStatus implements SnapshotFai
 
   @Override
   public void checkFailure() throws SnapshotCreationException {
-    failureMonitor.checkFailure();
+    errorMonitor.checkFailure();
   }
   
   @Override
   public void localSnapshotFailure(SnapshotDescriptor snapshot, String description) {
-    failureMonitor.localSnapshotFailure(snapshot, description);
+    errorMonitor.localSnapshotFailure(snapshot, description);
   }
 
   /**
    * @param snapshot
    */
   public void remoteFailure(SnapshotDescriptor snapshot) {
-    failureMonitor.remoteFailure(snapshot);
+    errorMonitor.remoteFailure(snapshot);
   }
 
   /**

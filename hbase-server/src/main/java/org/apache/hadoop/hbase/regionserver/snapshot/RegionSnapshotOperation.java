@@ -30,30 +30,22 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
  * Runnable wrapper around the the snapshot operation on a region so the
- * snapshotting can be done in parallel on the regions.
+ * snapshoting can be done in parallel on the regions.
  */
 class RegionSnapshotOperation extends SnapshotOperation<RegionSnapshotStatus> {
   private static final Log LOG = LogFactory.getLog(RegionSnapshotOperation.class);
   private final HRegion region;
+  private final RegionSnapshotOperationStatus status;
   private CountDownLatch finishLatch;
   private CountDownLatch completeLatch;
 
-  public RegionSnapshotOperation(SnapshotFailureMonitor monitor, SnapshotDescriptor snapshot,
-      HRegion region) {
-    super(monitor, snapshot);
+  public RegionSnapshotOperation(SnapshotDescriptor snapshot,
+      HRegion region, SnapshotFailureMonitor monitor, RegionSnapshotOperationStatus status) {
+    super(monitor, snapshot, status);
     this.region = region;
+    this.status = status;
     this.finishLatch = new CountDownLatch(1);
     this.completeLatch = new CountDownLatch(1);
-  }
-
-  /**
-   * Set the status monitor.
-   * <p>
-   * Must be called before calling #run()
-   * @param monitor progress monitor to update for the region
-   */
-  public void setStatusMonitor(RegionSnapshotOperationStatus monitor) {
-    this.setStatus(new RegionSnapshotStatus(monitor));
   }
 
   @Override

@@ -120,7 +120,11 @@ import org.apache.hadoop.hbase.regionserver.metrics.OperationMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.RegionMetricsStorage;
 import org.apache.hadoop.hbase.regionserver.metrics.SchemaMetrics;
 import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotUtils;
+import org.apache.hadoop.hbase.regionserver.snapshot.exception.ExternalSnapshotCreationException;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RegionProgressMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotStatus;
+import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureStatus;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
@@ -2479,12 +2483,12 @@ public class HRegion implements HeapSize { // , Writable{
    * snapshot.
    * @param desc {@link SnapshotDescriptor} describing the snapshot to take
    * @param monitor to update/monitor progress on the snapshot
-   * @param failureStatus status of the overall snapshot
+   * @param failureMonitor check failure of the overall snapshot
    * @para desc
    * @throws IOException if the snapshot could not be made
    */
-  public void startSnapshot(SnapshotDescriptor desc, RegionSnapshotStatus monitor,
-      SnapshotFailureStatus failureStatus) throws IOException {
+  public void startSnapshot(SnapshotDescriptor desc, RegionProgressMonitor monitor,
+      SnapshotErrorMonitor<HRegion> failureMonitor) throws IOException {
 
     LOG.debug("Snapshot is started on " + this);
     MonitoredTask status = TaskMonitor.get().createStatus("Snapshotting " + this);
@@ -2538,10 +2542,12 @@ public class HRegion implements HeapSize { // , Writable{
         }
       }
       // tell the monitor that we have reached a stable point
-      monitor.becomeStable();
+      monitor.stabilize();
 
       // 2. Add references to meta about the store files
-      failureStatus.checkFailure();
+      if (failureMonitor.checkForError()) {
+        throw new ExternalSnapshotCreationException();
+      }
 
       // This should be "fast" since we don't rewrite store files but instead
       // back up the store files by creating a "reference".
@@ -2563,7 +2569,9 @@ public class HRegion implements HeapSize { // , Writable{
         if (LOG.isDebugEnabled()) LOG.debug("Adding snapshot references for " + files.size()
             + " hfiles: " + files);
         for (int i = 0; i < files.size(); i++) {
-          failureStatus.checkFailure();
+          if (failureMonitor.checkForError()) {
+            throw new ExternalSnapshotCreationException();
+          }
           StoreFile file = files.get(i);
           // 2.3. create "reference" to this store file
           LOG.debug("("+i+") Creating reference for file:" + file);
@@ -2576,7 +2584,7 @@ public class HRegion implements HeapSize { // , Writable{
       throw new SnapshotCreationException(e.getMessage(), e, desc);
     }
     LOG.debug("Region:" + this + " completed snapshot.");
-    monitor.completedSnapshot();
+    monitor.complete();
   }
 
   /**

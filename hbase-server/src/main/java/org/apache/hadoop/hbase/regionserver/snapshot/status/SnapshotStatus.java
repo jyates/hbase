@@ -23,6 +23,7 @@ import java.util.concurrent.Future;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.DelegatingSnapshotErrorMonitor;
 import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 
 /**
@@ -30,7 +31,7 @@ import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
-public abstract class SnapshotStatus {
+public abstract class SnapshotStatus extends DelegatingSnapshotErrorMonitor {
 
   private Future<?> future;
 

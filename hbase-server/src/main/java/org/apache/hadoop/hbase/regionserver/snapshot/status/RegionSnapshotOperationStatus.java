@@ -21,14 +21,19 @@ import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.regionserver.snapshot.RegionSnapshotPool;
 import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RegionProgressMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RunningSnapshotErrorMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
 import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
@@ -36,92 +41,69 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
  * Simple helper class to determine if a snapshot is finished or not for a set
  * of regions
  */
-// TODO does this need to implement HasThread?
-public class RegionSnapshotOperationStatus extends SnapshotStatus {
+public class RegionSnapshotOperationStatus implements RegionProgressMonitor {
 
   private static final Log LOG = LogFactory.getLog(RegionSnapshotOperationStatus.class);
 
-  private final SnapshotFailureMonitor failureMonitor;
   private final List<RegionSnapshotStatus> results = new LinkedList<RegionSnapshotStatus>();
   private final SnapshotDescriptor desc;
 
-  private volatile boolean done = false;
+  private CountDownLatch done;
+  private CountDownLatch stabilized;
+  private long wakeFrequency;
 
   // per region stability info
   private final AtomicInteger stableRegionCount = new AtomicInteger(0);
   private int totalRegions = 0;
 
-  public RegionSnapshotOperationStatus(SnapshotFailureMonitor failureMonitor,
+  public RegionSnapshotOperationStatus(
       SnapshotDescriptor desc, int regionCount) {
-    this.failureMonitor = failureMonitor;
     this.desc = desc;
+    this.done = new CountDownLatch(regionCount);
+    this.stabilized = new CountDownLatch(regionCount);
   }
 
-  @Override
-  public boolean checkDone() {
+  public boolean checkDone(RunningSnapshotErrorMonitor failureMonitor) {
     LOG.debug("Expecting " + totalRegions + " to be involved in snapshot.");
-    for (int i = 0; i < results.size(); i++) {
-      try {
-        if (results.get(i).isDone()) {
-          results.remove(i--);
-        }
-      } catch (CancellationException e) {
-        // ignore - cancellation occurs if we cancelled it already
-        break;
-      } catch (SnapshotCreationException e) {
-        cancelOperations();
-        break;
-      }
-      logStatus();
-    }
-
-    if (this.results.size() == 0) {
-      LOG.debug("All regions done snapshotting");
-      return true;
-    }
-    LOG.debug("Still have some regions left to finish snapshotting.");
-    return false;
+    return waitOnCondition(done, failureMonitor, "regions to complete");
   }
 
-  @Override
-  public String getStatus() {
-    return "Currently have: " + (results.size()) + " of " + totalRegions
-        + " remaining to finish snapshotting";
+  public boolean waitForRegionsToStabilize(RunningSnapshotErrorMonitor failureMonitor) {
+    LOG.debug("Expecting " + totalRegions + " to be involved in snapshot.");
+    return waitOnCondition(stabilized, failureMonitor, "regions to stabilize");
+  }
+
+  private boolean waitOnCondition(CountDownLatch latch, SnapshotErrorMonitor failureMonitor,
+      String waitingOn) {
+    while (true) {
+      try {
+        if (this.stabilized.await(wakeFrequency, TimeUnit.MILLISECONDS)) break;
+        logStatus();
+        if (failureMonitor.checkForError()) {
+          LOG.debug("Failure monitor found an error - not waiting for " + waitingOn);
+          return false;
+        }
+      } catch (InterruptedException e) {
+        LOG.debug("Interrupted while waiting for" + waitingOn + " for snapshot. "
+            + "Ignoring and waiting some more.");
+      }
+    }
+    return true;
   }
 
   private void logStatus() {
-    LOG.debug(getStatus());
+    LOG.debug("Currently have: " + (done.getCount()) + " of " + totalRegions
+        + " remaining to finish snapshotting");
   }
 
-  private void cancelOperations() {
-    for (SnapshotStatus op : results) {
-      op.cancel();
-    }
-  }
-
-  /**
-   * Check to see if all the regions have reached a 'stable' state where no
-   * new writes are incoming
-   * @return <tt>true</tt> if all the regions are stable
-   * @throws SnapshotCreationException if the snapshot has failed for any
-   *           reason (timeout, region failure, external snapshot failure)
-   */
-  public boolean allRegionsStable() throws SnapshotCreationException {
-    return !(stableRegionCount.intValue() < totalRegions);
-  }
-
-  public void regionBecameStable() {
+  @Override
+  public void stabilize() {
     LOG.debug("Another region has become stable.");
-    stableRegionCount.incrementAndGet();
-
+    this.stabilized.countDown();
   }
 
-  /**
-   * Add a subtask to monitor for completion
-   * @param regionWork
-   */
-  public void addStatus(RegionSnapshotStatus regionWork) {
-    this.results.add(regionWork);
-    totalRegions++;
+  @Override
+  public void complete() {
+    this.done.countDown();
   }
 }

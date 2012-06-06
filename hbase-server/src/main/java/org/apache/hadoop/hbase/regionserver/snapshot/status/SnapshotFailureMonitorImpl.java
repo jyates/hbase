@@ -67,18 +67,6 @@ public class SnapshotFailureMonitorImpl implements SnapshotFailureMonitor {
     }
   }
 
-  /**
-   * @return <tt>true</tt> if the running time is within the valid limits
-   */
-  private boolean validTime() {
-    return timeLapse() < maxTime;
-  }
-
-  private long timeLapse() {
-    long current = EnvironmentEdgeManager.currentTimeMillis();
-    return (current - startTime);
-  }
-
   @Override
   public void localSnapshotFailure(SnapshotDescriptor snapshot, String description) {
     if (!shouldRespond(snapshot)) return;
