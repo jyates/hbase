@@ -15,14 +15,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.regionserver.snapshot.status;
+package org.apache.hadoop.hbase.regionserver.snapshot;
 
-import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
- * Join interface of a failure monitor that both checks failure status and
- * listens for failures
+ * Helper class that just notifies the subclass if the snapshot failure is the
+ * one it was expecting.
  */
-public interface SnapshotFailureMonitor extends SnapshotFailureStatus, SnapshotFailureListener {
+public abstract class BoundSnapshotFailureListener implements SnapshotFailureListener {
+
+  protected SnapshotDescriptor snapshot;
+
+  public BoundSnapshotFailureListener(SnapshotDescriptor snapshot) {
+    this.snapshot = snapshot;
+  }
+
+  @Override
+  public void snapshotFailure(SnapshotDescriptor snapshot, String description) {
+    if (this.snapshot.equals(snapshot)) this.snapshotFailure(description);
+
+  }
+
+  /**
+   * Notification that the snapshot has failed.
+   * @param description reason why the snapshot failed
+   */
+  protected abstract void snapshotFailure(String description);
 
 }

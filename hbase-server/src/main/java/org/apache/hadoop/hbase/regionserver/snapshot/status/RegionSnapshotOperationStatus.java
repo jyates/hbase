@@ -17,25 +17,14 @@
  */
 package org.apache.hadoop.hbase.regionserver.snapshot.status;
 
-import java.util.Collection;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.regionserver.snapshot.RegionSnapshotPool;
-import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RegionProgressMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RunningSnapshotErrorMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
-import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
-import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
  * Simple helper class to determine if a snapshot is finished or not for a set
@@ -45,22 +34,17 @@ public class RegionSnapshotOperationStatus implements RegionProgressMonitor {
 
   private static final Log LOG = LogFactory.getLog(RegionSnapshotOperationStatus.class);
 
-  private final List<RegionSnapshotStatus> results = new LinkedList<RegionSnapshotStatus>();
-  private final SnapshotDescriptor desc;
-
   private CountDownLatch done;
   private CountDownLatch stabilized;
   private long wakeFrequency;
 
   // per region stability info
-  private final AtomicInteger stableRegionCount = new AtomicInteger(0);
   private int totalRegions = 0;
 
-  public RegionSnapshotOperationStatus(
-      SnapshotDescriptor desc, int regionCount) {
-    this.desc = desc;
+  public RegionSnapshotOperationStatus(int regionCount) {
     this.done = new CountDownLatch(regionCount);
     this.stabilized = new CountDownLatch(regionCount);
+    this.totalRegions = regionCount;
   }
 
   public boolean checkDone(RunningSnapshotErrorMonitor failureMonitor) {
@@ -79,7 +63,7 @@ public class RegionSnapshotOperationStatus implements RegionProgressMonitor {
       try {
         if (this.stabilized.await(wakeFrequency, TimeUnit.MILLISECONDS)) break;
         logStatus();
-        if (failureMonitor.checkForError()) {
+        if (failureMonitor.checkForError(this.getClass())) {
           LOG.debug("Failure monitor found an error - not waiting for " + waitingOn);
           return false;
         }

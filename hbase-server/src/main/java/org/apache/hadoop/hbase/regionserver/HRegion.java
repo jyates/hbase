@@ -123,8 +123,6 @@ import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotUtils;
 import org.apache.hadoop.hbase.regionserver.snapshot.exception.ExternalSnapshotCreationException;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RegionProgressMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotStatus;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureStatus;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
@@ -2488,7 +2486,7 @@ public class HRegion implements HeapSize { // , Writable{
    * @throws IOException if the snapshot could not be made
    */
   public void startSnapshot(SnapshotDescriptor desc, RegionProgressMonitor monitor,
-      SnapshotErrorMonitor<HRegion> failureMonitor) throws IOException {
+      SnapshotErrorMonitor failureMonitor) throws IOException {
 
     LOG.debug("Snapshot is started on " + this);
     MonitoredTask status = TaskMonitor.get().createStatus("Snapshotting " + this);
@@ -2545,7 +2543,7 @@ public class HRegion implements HeapSize { // , Writable{
       monitor.stabilize();
 
       // 2. Add references to meta about the store files
-      if (failureMonitor.checkForError()) {
+      if (failureMonitor.checkForError(this.getClass())) {
         throw new ExternalSnapshotCreationException();
       }
 
@@ -2569,7 +2567,7 @@ public class HRegion implements HeapSize { // , Writable{
         if (LOG.isDebugEnabled()) LOG.debug("Adding snapshot references for " + files.size()
             + " hfiles: " + files);
         for (int i = 0; i < files.size(); i++) {
-          if (failureMonitor.checkForError()) {
+          if (failureMonitor.checkForError(this.getClass())) {
             throw new ExternalSnapshotCreationException();
           }
           StoreFile file = files.get(i);

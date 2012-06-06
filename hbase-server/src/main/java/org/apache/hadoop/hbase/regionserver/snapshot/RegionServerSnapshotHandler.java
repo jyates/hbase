@@ -19,11 +19,10 @@ package org.apache.hadoop.hbase.regionserver.snapshot;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -39,10 +38,9 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
-import org.apache.hadoop.hbase.regionserver.snapshot.monitor.FailureMonitorFactory;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureListenable;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.GlobalSnapshotFailureListener;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitorImpl.SnapshotFailureMonitorFactory;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.KeeperException;
@@ -59,7 +57,8 @@ import org.apache.zookeeper.KeeperException;
  * <p>
  * On shutdown, requires {@link #close()} to be called
  */
-public class RegionServerSnapshotHandler extends Configured implements SnapshotFailureListener, SnapshotListener,
+public class RegionServerSnapshotHandler extends Configured implements SnapshotFailureListenable,
+    SnapshotListener,
     Abortable, Closeable {
   private static final Log LOG = LogFactory.getLog(RegionServerSnapshotHandler.class);
 
@@ -87,7 +86,7 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
   private final Map<SnapshotDescriptor, SnapshotRequestHandler> requests = new TreeMap<SnapshotDescriptor, SnapshotRequestHandler>();
 
   /** Map of listeners for a given snapshot failure */
-  private final Map<SnapshotDescriptor, GlobalSnapshotFailureListener> snapshotFailureListeners = new TreeMap<SnapshotDescriptor, GlobalSnapshotFailureListener>();
+  private final List<SnapshotFailureListener> snapshotFailureListeners = new ArrayList<SnapshotFailureListener>();
 
 
   private final AtomicBoolean globalSnapshotFailure = new AtomicBoolean(false);
@@ -195,15 +194,11 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
 
     LOG.debug("Have some regions involved in snapshot:" + involvedRegions);
     // 1. Create a snapshot request
-    // TODO create external monitor
-    SnapshotErrorMonitor externalMonitor = null;
     SnapshotRequestHandler handler = requestHandlerFactory.create(snapshot, involvedRegions,
-      this.parent, externalMonitor);
+      this.parent, this);
     // 2. add the request handler to the current request
     this.requests.put(snapshot, handler);
-    // 3. add the request to listen for the failures on that snapshot
-    this.snapshotFailureListeners.put(snapshot, handler);
-    // 4. start the snapshot
+    // 3. start the snapshot
     LOG.debug("Starting to handle request for snapshot:" + snapshot.getSnapshotNameAsString());
     if (handler.start()) {
       try {
@@ -216,6 +211,21 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
   }
 
   @Override
+  public void listenForSnapshotFailure(SnapshotFailureListener failable) {
+    this.snapshotFailureListeners.add(failable);
+  }
+
+  @Override
+  public void stopListening(SnapshotFailureListener listener) {
+    this.snapshotFailureListeners.remove(listener);
+  }
+
+  private void notifyListenersOfSnapshotFailure(SnapshotDescriptor snapshot, String reason) {
+    for (SnapshotFailureListener listener : snapshotFailureListeners) {
+      listener.snapshotFailure(snapshot, reason);
+    }
+  }
+
   public void localSnapshotFailure(SnapshotDescriptor snapshot, String description) {
     // if we know about a snapshot, then fail it out
     if (requests.containsKey(snapshot)) {
@@ -224,8 +234,8 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
       handler.cleanupAbortedSnapshot(description);
       // 2. notify ZK that we are aborting the given snapshot
       try {
-        this.snapshotZKController.abortSnapshot(snapshot, "Snapshot failed to complete on this server:"
-            + description);
+        this.snapshotZKController.abortSnapshot(snapshot,
+          "Snapshot failed to complete on this server:" + description);
       } catch (KeeperException e) {
         // the global snapshot will fail on its own, so we don't need to worry
         // too much about bailing out here

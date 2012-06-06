@@ -23,8 +23,8 @@ import java.util.concurrent.CountDownLatch;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.regionserver.HRegion;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotStatus;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotOperationStatus;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
@@ -32,16 +32,17 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
  * Runnable wrapper around the the snapshot operation on a region so the
  * snapshoting can be done in parallel on the regions.
  */
-class RegionSnapshotOperation extends SnapshotOperation<RegionSnapshotStatus> {
+class RegionSnapshotOperation extends SnapshotOperation {
   private static final Log LOG = LogFactory.getLog(RegionSnapshotOperation.class);
   private final HRegion region;
   private final RegionSnapshotOperationStatus status;
   private CountDownLatch finishLatch;
   private CountDownLatch completeLatch;
 
-  public RegionSnapshotOperation(SnapshotDescriptor snapshot,
-      HRegion region, SnapshotFailureMonitor monitor, RegionSnapshotOperationStatus status) {
-    super(monitor, snapshot, status);
+  public RegionSnapshotOperation(SnapshotErrorMonitor errorMonitor,
+      SnapshotFailureListener listener, SnapshotDescriptor snapshot, HRegion region,
+      RegionSnapshotOperationStatus status) {
+    super(errorMonitor, listener, snapshot);
     this.region = region;
     this.status = status;
     this.finishLatch = new CountDownLatch(1);
@@ -54,7 +55,7 @@ class RegionSnapshotOperation extends SnapshotOperation<RegionSnapshotStatus> {
     // synchronization on a region - only use the same thread because of the
     // internal locking requires the same thread to unlock as locked the region.
     try {
-      region.startSnapshot(snapshot, status, this.getFailureMonitor());
+      region.startSnapshot(snapshot, status, this.errorMonitor);
       LOG.debug("Region completed snapshot, waiting to commit snapshot.");
 
       while (this.finishLatch.getCount() != 0) {

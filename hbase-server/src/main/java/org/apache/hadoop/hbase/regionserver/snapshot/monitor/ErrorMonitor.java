@@ -23,31 +23,21 @@ import org.apache.commons.logging.LogFactory;
 /**
  * Helper class to propate error checking class and keep track of the simple
  * error state.
- * @param <T> class that is using this error monitor
  */
-public class ErrorMonitor<T> implements SnapshotErrorMonitor {
+public class ErrorMonitor implements SnapshotErrorMonitor {
 
   private static final Log LOG = LogFactory.getLog(ErrorMonitor.class);
-  private final Class<T> clazz;
   private volatile boolean error;
 
-  public ErrorMonitor(Class<T> clazz) {
-    this.clazz = clazz;
-  }
-
   @Override
-  public boolean checkForError() {
+  public <T> boolean checkForError(Class<T> clazz) {
     LOG.debug("Class:" + clazz + " checking for error");
     return this.error;
   }
 
   public void setError(String msg) {
-    LOG.error(this.clazz + " is setting snapshot error becuase:" + msg);
+    LOG.error("Setting snapshot error becuase:" + msg);
     this.error = true;
   }
 
-  @Override
-  public Class<T> getCaller() {
-    return this.clazz;
-  }
 }

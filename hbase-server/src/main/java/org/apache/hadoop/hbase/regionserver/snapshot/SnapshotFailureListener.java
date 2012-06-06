@@ -30,6 +30,5 @@ public interface SnapshotFailureListener {
    * @param snapshot snapshot that failed
    * @param description explanation of why the snapshot failed
    */
-  public void localSnapshotFailure(SnapshotDescriptor snapshot, String description);
-
+  public void snapshotFailure(SnapshotDescriptor snapshot, String description);
 }

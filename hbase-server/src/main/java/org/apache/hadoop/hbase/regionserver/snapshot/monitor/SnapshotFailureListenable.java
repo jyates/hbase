@@ -20,22 +20,11 @@ package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
 
 /**
- * 
+ * Listener for all snapshot failures for all reasons (internal and external)
  */
-public interface RunningSnapshotErrorMonitor extends SnapshotErrorMonitor, SnapshotFailureListener,
-    SnapshotFailureListenable {
-  // TODO add docs
+public interface SnapshotFailureListenable {
 
-  public SnapshotTimer getTimerErrorMonitor(long now, long wakeFrequency);
-  
-  /**
-   * Once complete is called, any further calls to {@link #checkForError(Class)}
-   * will return <tt>true</tt>
-   */
-  public void complete();
+  public void listenForSnapshotFailure(SnapshotFailureListener failable);
 
-  /**
-   * Add the monitor, if it hasn't been added already
-   */
-  public void addTaskMonitor(SnapshotErrorMonitor monitor);
+  public void stopListening(SnapshotFailureListener failable);
 }

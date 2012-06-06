@@ -76,7 +76,7 @@ public class SnapshotStatusMonitor extends SnapshotStatus implements SnapshotFai
   
   @Override
   public void localSnapshotFailure(SnapshotDescriptor snapshot, String description) {
-    errorMonitor.localSnapshotFailure(snapshot, description);
+    errorMonitor.snapshotFailure(snapshot, description);
   }
 
   /**

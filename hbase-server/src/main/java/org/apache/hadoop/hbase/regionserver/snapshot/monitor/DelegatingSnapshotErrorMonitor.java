@@ -29,13 +29,7 @@ public class DelegatingSnapshotErrorMonitor implements SnapshotErrorMonitor {
   }
 
   @Override
-  public boolean checkForError() {
-    return delegate.checkForError();
+  public <T> boolean checkForError(Class<T> clazz) {
+    return delegate.checkForError(clazz);
   }
-
-  @Override
-  public <T> Class<T> getCaller() {
-    return delegate.getCaller();
-  }
-
 }

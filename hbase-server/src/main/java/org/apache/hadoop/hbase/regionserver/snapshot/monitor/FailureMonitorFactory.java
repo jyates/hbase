@@ -23,85 +23,82 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hbase.regionserver.snapshot.BoundSnapshotFailureListener;
+import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
 import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotRequestHandler;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
  * Factory that produces failure monitors for a given snapshot request
  */
 public class FailureMonitorFactory {
 
-  private SnapshotErrorMonitor externalError;
+  private SnapshotFailureListenable externalError;
   private List<SnapshotFaultInjector> faults = new ArrayList<SnapshotFaultInjector>(0);
   private final long maxTime;
 
-  public FailureMonitorFactory(SnapshotErrorMonitor externalErrorMonitor, long maxWaitTime) {
+  public FailureMonitorFactory(SnapshotFailureListenable externalErrorMonitor, long maxWaitTime) {
     this.externalError = externalErrorMonitor;
     this.maxTime = maxWaitTime;
   }
 
   /**
-   * @return a {@link SnapshotErrorMonitor} to monitor the given snapshot for
-   *         external and internal errors.
+   * @return a {@link SnapshotFailureListenable} to monitor the given snapshot
+   *         for external and internal errors.
    */
-  public RunningSnapshotErrorMonitor getRunningSnapshotFailureMonitor() {
+  public RunningSnapshotErrorMonitor getRunningSnapshotFailureMonitor(SnapshotDescriptor snapshot) {
     // if there are fault injectors, then we need to call them
-    if (faults.size() > 0) return new InjectedGlobalSnapshotErrorMonitor(externalError, faults);
+    if (faults.size() > 0) return new InjectedGlobalSnapshotErrorMonitor(snapshot, externalError,
+        faults);
     // otherwise we just use the regular error monitor
-    return new GlobalSnapshotErrorMonitor(externalError);
+    return new GlobalSnapshotErrorMonitor(snapshot, externalError);
 
-  }
-
-  // XXX this is all implemented pretty wrong - we don't need to track a bunch
-  // of error monitors, we need to track a bunch of failure listeners, but use
-  // the same method for seeing who is checking. We can use the failInjection
-  // stuff as a failureListener to add that also does the checks for the who is
-  // checking. This just means adding a method in SnapshotOperation that you can
-  // do for checkForError() that propagates the class down.
-
-  /**
-   * @param failureMonitor
-   * @param now
-   * @return
-   */
-  public SnapshotTimeoutMonitor<SnapshotRequestHandler> getTimerErrorMonitor(
-      RunningSnapshotErrorMonitor failureMonitor, long now) {
-    SnapshotTimeoutMonitor monitor = new SnapshotTimeoutMonitor(SnapshotRequestHandler.class, now,
-        maxTime);
-    failureMonitor.addTaskMonitor(monitor);
-    return monitor;
   }
 
   public void addFaultInjector(SnapshotFaultInjector injector) {
     this.faults.add(injector);
   }
 
-  private class GlobalSnapshotErrorMonitor implements RunningSnapshotErrorMonitor {
-
+  private class GlobalSnapshotErrorMonitor extends BoundSnapshotFailureListener implements
+      RunningSnapshotErrorMonitor {
+    private final Log LOG = LogFactory.getLog(GlobalSnapshotErrorMonitor.class);
     private final Set<SnapshotErrorMonitor> subtasks = new TreeSet<SnapshotErrorMonitor>();
     private volatile boolean complete = false;
+    private volatile boolean failed = false;
+
     /**
      * @param externalError monitor to check for snapshot failure due to some
      *          external cause
      */
-    public GlobalSnapshotErrorMonitor(SnapshotErrorMonitor externalError) {
-      this.subtasks.add(externalError);
+    public GlobalSnapshotErrorMonitor(SnapshotDescriptor snapshot,
+        SnapshotFailureListenable externalError) {
+      super(snapshot);
+      externalError.listenForSnapshotFailure(this);
+    }
+
+    /**
+     * @param failureMonitor
+     * @param now
+     * @return
+     */
+    public SnapshotTimer getTimerErrorMonitor(long now, long wakeFrequency) {
+      SnapshotTimer monitor = new SnapshotTimer(snapshot, this, wakeFrequency, now, maxTime);
+      return monitor;
     }
 
     @Override
-    public boolean checkForError() {
+    public <T> boolean checkForError(Class<T> clazz) {
+      // if we are don't, we don't return an error
       if (this.complete) return false;
-      // then check all the subtasks
+      // if we failed, we want to return without checking subtasks
+      if (this.failed) return true;
+      // if the main check failed, check the other monitors
       for (SnapshotErrorMonitor monitor : subtasks) {
-        if (monitor.checkForError()) return true;
+        if (monitor.checkForError(clazz)) return true;
       }
       return false;
-    }
-
-    @Override
-    public <T> SnapshotErrorMonitor getTaskErrorMontior(Class<T> caller) {
-      SnapshotErrorMonitor monitor = new ErrorMonitor<T>(caller);
-      this.subtasks.add(monitor);
-      return monitor;
     }
 
     @Override
@@ -109,16 +106,18 @@ public class FailureMonitorFactory {
       this.subtasks.add(monitor);
     }
 
-    @SuppressWarnings("unchecked")
-    @Override
-    public <T> Class<T> getCaller() {
-      return (Class<T>) SnapshotRequestHandler.class;
-    }
-
     @Override
     public void complete() {
       this.complete = true;
     }
+
+    @Override
+    public void snapshotFailure(String description) {
+      LOG.debug("Failing snapshot because: " + description);
+      this.failed = true;
+    }
+
+
 
   }
 
@@ -128,9 +127,10 @@ public class FailureMonitorFactory {
      * @param externalError
      * @param faults
      */
-    public  InjectedGlobalSnapshotErrorMonitor(SnapshotErrorMonitor externalError,
+    public InjectedGlobalSnapshotErrorMonitor(SnapshotDescriptor snapshot,
+        SnapshotFailureListenable externalError,
         List<SnapshotFaultInjector> faults) {
-      super(new InjectableErrorMonitor(externalError, faults));
+      super(snapshot, externalError);
     }
 
   }
@@ -150,16 +150,11 @@ public class FailureMonitorFactory {
     }
 
     @Override
-    public boolean checkForError() {
+    public <T> boolean checkForError(Class<T> clazz) {
       for(SnapshotFaultInjector injector: injectors)
-        if(injector.injectFault(this.monitor.getCaller()))
+        if (injector.injectFault(clazz))
           return true;
-        return this.monitor.checkForError();
+      return this.monitor.checkForError(clazz);
       }
-
-    @Override
-    public <T> Class<T> getCaller() {
-     return monitor.getCaller();
-    }
   }
 }

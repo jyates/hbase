@@ -19,59 +19,40 @@ package org.apache.hadoop.hbase.regionserver.snapshot;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitor;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotStatus;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
 import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
  * Operation that actually does all the work of taking a snapshot
  * per-regionserver
- * @param <T> status type used to monitor the status of the operation
  */
-public abstract class SnapshotOperation<T extends SnapshotStatus> implements Runnable {
+public abstract class SnapshotOperation implements Runnable {
 
   private static final Log LOG = LogFactory.getLog(SnapshotOperation.class);
-  private final SnapshotFailureMonitor failureMonitor;
+  protected final SnapshotErrorMonitor errorMonitor;
+  private final SnapshotFailureListener failureListener;
   protected final SnapshotDescriptor snapshot;
-  protected T status;
 
-  public SnapshotOperation(SnapshotFailureMonitor monitor, SnapshotDescriptor snapshot) {
-    this.failureMonitor = monitor;
+  public SnapshotOperation(SnapshotErrorMonitor monitor, SnapshotFailureListener listener,
+      SnapshotDescriptor snapshot) {
+    this.errorMonitor = monitor;
+    this.failureListener = listener;
     this.snapshot = snapshot;
   }
 
   protected void failSnapshot(String reason, Throwable t) {
     LOG.error("Failing snapshot becuase:" + reason, t);
-    failureMonitor.localSnapshotFailure(snapshot, reason);
+    failureListener.snapshotFailure(snapshot, reason);
   }
 
-  /**
-   * @return the progress monitor for this operation
-   */
-  public T getStatusMonitor() {
-    return this.status;
-  }
-
-  /**
-   * Set the status monitor that will be used to monitor the running operation.
-   * <p>
-   * Must be called before run is called
-   * @param status
-   */
-  protected void setStatus(T status) {
-    this.status = status;
-  }
 
   /**
    * @see SnapshotFailureMonitor#checkFailure()
    * @throws SnapshotCreationException
    */
   protected void checkFailure() throws SnapshotCreationException {
-    this.failureMonitor.checkFailure();
+    this.errorMonitor.checkForError(this.getClass());
   }
 
-  protected SnapshotFailureMonitor getFailureMonitor() {
-    return this.failureMonitor;
-  }
 }

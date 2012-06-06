@@ -34,10 +34,10 @@ import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.FailureMonitorFactory;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RunningSnapshotErrorMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
-import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotTimeoutMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureListenable;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotTimer;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.GlobalSnapshotFailureListener;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotOperationStatus;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitorImpl.SnapshotFailureMonitorFactory;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotStatusMonitor;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
@@ -91,14 +91,13 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
     // "now" as starting the snapshot
     long now = EnvironmentEdgeManager.currentTimeMillis();
     RunningSnapshotErrorMonitor failureMonitor = failureMonitorFactory
-        .getRunningSnapshotFailureMonitor();
+        .getRunningSnapshotFailureMonitor(snapshot);
     // create a timeout monitor so we can check for timeout issues
     @SuppressWarnings("rawtypes")
-    SnapshotTimeoutMonitor timeoutMonitor = failureMonitorFactory.getTimerErrorMonitor(
-      failureMonitor, now);
+    SnapshotTimer timeoutMonitor = failureMonitor.getTimerErrorMonitor(now,
+      this.wakeFrequency);
     final SnapshotStatusMonitor monitor = this.monitor;
-    RegionSnapshotOperationStatus status = new RegionSnapshotOperationStatus(snapshot,
-        regions.size());
+    RegionSnapshotOperationStatus status = new RegionSnapshotOperationStatus(regions.size());
     try {
       // 1. create an operation for each region
       this.ops = new ArrayList<RegionSnapshotOperation>(regions.size());
@@ -109,11 +108,11 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
 
       // 2. submit those operations to the region snapshot runner
       for (RegionSnapshotOperation op : ops)
-        this.taskPool.submit(op, null);
+        submitTask(op);
 
 
       // 2.1 do the copy table async at the same time
-      if (failureMonitor.checkForError()) return false;
+      if (failureMonitor.checkForError(this.getClass())) return false;
       taskPool.submit((new TableInfoCopyOperation(monitor, snapshot, rss)), null);
 
       // wait for all the regions to become stable (no more writes) so we can
@@ -139,7 +138,7 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
       while (count > 0) {
         try {
           LOG.debug("Snapshot isn't finished.");
-          if(failureMonitor.checkForError())
+          if (failureMonitor.checkForError(this.getClass()))
           {
             LOG.debug("Failure monitor noticed an error -  quitting " +
             		"without waiting for snapshot tasks to complete.");
@@ -274,7 +273,7 @@ public class SnapshotRequestHandler implements GlobalSnapshotFailureListener {
     }
 
     public SnapshotRequestHandler create(SnapshotDescriptor desc, List<HRegion> regions,
-        RegionServerServices rss, SnapshotErrorMonitor externalMonitor) {
+        RegionServerServices rss, SnapshotFailureListenable externalMonitor) {
       return new SnapshotRequestHandler(desc, regions, log, rss, new FailureMonitorFactory(
           externalMonitor, maxWait), wakeFrequency, pool);
     }

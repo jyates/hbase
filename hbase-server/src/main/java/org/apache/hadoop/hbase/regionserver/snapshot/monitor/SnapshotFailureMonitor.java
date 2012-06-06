@@ -17,38 +17,32 @@
  */
 package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
 
-import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
+import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
- * 
+ * Simple helper class that just delegates the error checking to a
+ * {@link SnapshotErrorMonitor} and failure notifications to a
+ * {@link SnapshotFailureListener}.
  */
-public class SnapshotTimeoutMonitor<T> extends ErrorMonitor<T> {
-  private final long maxTime;
-  private final long startTime;
-  private volatile boolean complete;
+public class SnapshotFailureMonitor implements SnapshotErrorMonitor, SnapshotFailureListener {
 
-  public SnapshotTimeoutMonitor(Class<T> caller, long now, long maxTime) {
-    super(caller);
-    this.maxTime = maxTime;
-    this.startTime = now;
+  private SnapshotErrorMonitor errorMonitor;
+  private SnapshotFailureListener listener;
+
+  public SnapshotFailureMonitor(SnapshotErrorMonitor errorMonitor, SnapshotFailureListener listener) {
+    this.errorMonitor = errorMonitor;
+    this.listener = listener;
   }
 
   @Override
-  public boolean checkForError() {
-    // true< if the running time is within the valid limits
-    return complete ? false : timeLapse() >= maxTime;
+  public void snapshotFailure(SnapshotDescriptor snapshot, String description) {
+    listener.snapshotFailure(snapshot, description);
   }
 
-  private long timeLapse() {
-    long current = EnvironmentEdgeManager.currentTimeMillis();
-    return (current - startTime);
+  @Override
+  public <T> boolean checkForError(Class<T> clazz) {
+    return errorMonitor.checkForError(clazz);
   }
 
-  /**
-   * For all time forward, do not throw an error
-   */
-  public void complete() {
-    this.complete = true;
-
-  }
 }
