@@ -26,14 +26,18 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.FSTableDescriptors;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -134,10 +138,43 @@ public class TestSnapshotFromClient {
     assertArrayEquals(snapshot, snapshots[0].getSnapshotName());
     assertArrayEquals(TABLE_NAME, snapshots[0].getTableName());
     
+    // check the directory structure
+    FileSystem fs = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+    Path rootDir = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+    Path snapshotDir = SnapshotDescriptor.getCompletedSnapshotDir(snapshots[0], rootDir);
+    assertTrue(fs.exists(snapshotDir));
+    Path snapshotinfo = new Path(snapshotDir, SnapshotDescriptor.SNAPSHOTINFO_FILE);
+    assertTrue(fs.exists(snapshotinfo));
+    // check the logs dir
+    Path logsDir = new Path(snapshotDir, ".logs");
+    assertTrue(fs.exists(logsDir));
+    // make sure we have some logs
+    assertTrue(fs.listStatus(logsDir).length > 0);
+
+    // check the table info
+    HTableDescriptor desc = FSTableDescriptors.getTableDescriptor(fs, rootDir, TABLE_NAME);
+    HTableDescriptor snapshotDesc = FSTableDescriptors.getTableDescriptor(fs, snapshotDir,
+      TABLE_NAME);
+    assertEquals(desc, snapshotDesc);
+
+    // check the region snapshot for all the regions
+    List<HRegionInfo> regions = admin.getTableRegions(TABLE_NAME);
+    for (HRegionInfo info : regions) {
+      String regionName = info.getEncodedName();
+      Path regionDir = new Path(snapshotDir, regionName);
+      HRegionInfo snapshotRegionInfo = HRegion.loadDotRegionInfoFileContent(fs, regionDir);
+      assertEquals(info, snapshotRegionInfo);
+      // check to make sure we have the family
+      Path familyDir = new Path(regionDir, Bytes.toString(TEST_FAM));
+      assertTrue(fs.exists(familyDir));
+      // make sure we have some files references
+      assertTrue(fs.listStatus(familyDir).length > 0);
+    }
+
     // test that we can delete the snapshot
     admin.deleteSnapshot(snapshot);
 
-    // make sure we don't fail on listing snapshots
+    // make sure we don't have any snapshots
     assertEquals(0, admin.listSnapshots().length);
   }
 
