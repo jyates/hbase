@@ -27,17 +27,15 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitor;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.WALSnapshotMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureMonitor;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
-import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
  * Operation to increment references to all the wals necessary for a given
  * snapshot
  */
-public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor> {
+public class WALReferenceOperation extends SnapshotOperation {
   private static final Log LOG = LogFactory.getLog(WALReferenceOperation.class);
   // XXX does this need to be HasThread?
   private final List<Path> files;
@@ -56,7 +54,6 @@ public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor>
     for (FileStatus file : logFiles) {
       if (!file.isDir()) files.add(file.getPath());
     }
-    setStatus(new WALSnapshotMonitor(files.size()));
   }
 
   @Override
@@ -64,10 +61,8 @@ public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor>
     // Iterate through each of the log files and add a reference to it.
     if (LOG.isDebugEnabled()) LOG.debug("Adding references for WAL files:" + this.files);
     for (Path file : files) {
-      try {
-        checkFailure();
-      } catch (SnapshotCreationException e) {
-        LOG.warn("Could not complete adding WAL files to snapshot "
+      if (checkForError()) {
+        LOG.error("Could not complete adding WAL files to snapshot "
             + "because received nofification that snapshot failed.");
         return;
       }
@@ -75,7 +70,8 @@ public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor>
       try {
         // make sure file exists and hasn't be moved to oldlogs
         if (!fs.exists(file)) {
-          status.completedFile();
+          // TODO - switch to using MonitoredTask
+          // status.completedFile();
           continue;
         }
         // add the reference to the file
@@ -87,7 +83,8 @@ public class WALReferenceOperation extends SnapshotOperation<WALSnapshotMonitor>
         // actually store the reference on disk (small file)
         SnapshotUtils.createReference(fs, parent.getConfiguration(), file,
           snapshotLogDir);
-        status.completedFile();
+        // TODO - switch to using MonitoredTask
+        // status.completedFile();
         LOG.debug("Completed WAL referencing for: " + file);
       } catch (IOException e) {
         failSnapshot("Failed to update reference in META for log file:" + file, e);

@@ -23,7 +23,7 @@ package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
  * <p>
  * This class will be called whenever a class checks for snapshot failure.
  * <p>
- * They can be added to a {@link RunningSnapshotErrorMonitor} via the
+ * They can be added to a {@link RunningSnapshotFailureMonitor} via the
  * {@link FailureMonitorFactory#addFaultInjector(SnapshotFaultInjector)}
  * <b>before</b> the snapshot is started.
  */
@@ -35,6 +35,5 @@ public interface SnapshotFaultInjector {
    * @return <tt>true</tt> if a fault should be propagated to the rest of the
    *         snapshot process, <tt>false</tt> otherwise.
    */
-  @SuppressWarnings("rawtypes")
-  public boolean injectFault(Class clazz);
+  public boolean injectFault(Class<?> clazz);
 }

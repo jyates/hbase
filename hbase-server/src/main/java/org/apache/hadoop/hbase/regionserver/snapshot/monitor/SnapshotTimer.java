@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
 
-import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 
@@ -57,7 +56,7 @@ public class SnapshotTimer implements Runnable, SnapshotFailureListenable {
   }
 
   @Override
-  public void listenForSnapshotFailure(SnapshotFailureListener failable) {
+  public synchronized void listenForSnapshotFailure(SnapshotFailureListener failable) {
     this.listener = failable;
   }
 
@@ -71,9 +70,9 @@ public class SnapshotTimer implements Runnable, SnapshotFailureListenable {
       }
     } while (!complete && timeLapse() < maxTime);
     if (!this.complete) {
+      if (this.listener != null) {
       this.listener.snapshotFailure(snapshot, "Snapshot timeout elapsed!");
+      }
     }
   }
-
-
 }

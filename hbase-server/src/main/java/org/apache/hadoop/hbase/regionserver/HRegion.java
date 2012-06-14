@@ -123,7 +123,6 @@ import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotUtils;
 import org.apache.hadoop.hbase.regionserver.snapshot.exception.ExternalSnapshotCreationException;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RegionProgressMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureStatus;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
@@ -2543,7 +2542,7 @@ public class HRegion implements HeapSize { // , Writable{
       monitor.stabilize();
 
       // 2. Add references to meta about the store files
-      if (failureMonitor.checkForError(this.getClass())) {
+      if (failureMonitor.checkForError()) {
         throw new ExternalSnapshotCreationException();
       }
 
@@ -2567,7 +2566,7 @@ public class HRegion implements HeapSize { // , Writable{
         if (LOG.isDebugEnabled()) LOG.debug("Adding snapshot references for " + files.size()
             + " hfiles: " + files);
         for (int i = 0; i < files.size(); i++) {
-          if (failureMonitor.checkForError(this.getClass())) {
+          if (failureMonitor.checkForError()) {
             throw new ExternalSnapshotCreationException();
           }
           StoreFile file = files.get(i);

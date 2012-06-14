@@ -17,32 +17,12 @@
  */
 package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
 
-import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
-import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
- * Simple helper class that just delegates the error checking to a
- * {@link SnapshotErrorMonitor} and failure notifications to a
- * {@link SnapshotFailureListener}.
+ * Interface for a montior that can both listener for the failure of a snapshot
+ * and then tell others about that failure
  */
-public class SnapshotFailureMonitor implements SnapshotErrorMonitor, SnapshotFailureListener {
+public interface SnapshotFailureMonitor extends SnapshotErrorMonitor, SnapshotFailureListener {
 
-  private SnapshotErrorMonitor errorMonitor;
-  private SnapshotFailureListener listener;
-
-  public SnapshotFailureMonitor(SnapshotErrorMonitor errorMonitor, SnapshotFailureListener listener) {
-    this.errorMonitor = errorMonitor;
-    this.listener = listener;
-  }
-
-  @Override
-  public void snapshotFailure(SnapshotDescriptor snapshot, String description) {
-    listener.snapshotFailure(snapshot, description);
-  }
-
-  @Override
-  public <T> boolean checkForError(Class<T> clazz) {
-    return errorMonitor.checkForError(clazz);
-  }
 
 }

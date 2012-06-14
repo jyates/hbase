@@ -21,15 +21,14 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.SnapshotFailureMonitor;
-import org.apache.hadoop.hbase.regionserver.snapshot.status.TableInfoStatus;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureMonitor;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
 
 /**
  * Copy the table info into the snapshot directory
  */
-public class TableInfoCopyOperation extends SnapshotOperation<TableInfoStatus> {
+public class TableInfoCopyOperation extends SnapshotOperation {
 
   public static final Log LOG = LogFactory.getLog(TableInfoCopyOperation.class);
   private final RegionServerServices rss;
@@ -45,7 +44,6 @@ public class TableInfoCopyOperation extends SnapshotOperation<TableInfoStatus> {
     super(failures, snapshot);
     this.rss = rss;
     this.fs = rss.getFileSystem();
-    this.setStatus(new TableInfoStatus());
   }
 
   @Override
@@ -55,7 +53,10 @@ public class TableInfoCopyOperation extends SnapshotOperation<TableInfoStatus> {
       // 0. get the HTable descriptor
       HTableDescriptor orig = FSTableDescriptors.getTableDescriptor(fs, rss.getRootDir(),
         this.snapshot.getTableName());
-      checkFailure();
+      if (this.errorMonitor.checkForError()) {
+        LOG.error("Found an external error, quiting copying the table info.");
+        return;
+      }
       // 1. write a copy of it to the snapshot directory
       Path snapshotDir = SnapshotDescriptor.getWorkingSnapshotDir(snapshot, rss.getRootDir());
       FSTableDescriptors.createTableDescriptor(fs, snapshotDir, orig, false);

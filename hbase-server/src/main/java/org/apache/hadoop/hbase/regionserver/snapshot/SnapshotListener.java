@@ -17,19 +17,16 @@
  */
 package org.apache.hadoop.hbase.regionserver.snapshot;
 
-import org.apache.hadoop.hbase.regionserver.snapshot.status.GlobalSnapshotFailureListener;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
  * Listen for snapshot events
  */
-public interface SnapshotListener extends GlobalSnapshotFailureListener {
+public interface SnapshotListener {
 
   /**
    * Start the snapshot on the server
    * @param snapshot description of the snapshot to start
-   * @return <tt>true</tt> if the listener is interested in further
-   *         notifications about the passed snapshot, <tt>false</tt> otherwise
    */
   public void startSnapshot(SnapshotDescriptor snapshot);
 
@@ -38,4 +35,11 @@ public interface SnapshotListener extends GlobalSnapshotFailureListener {
    * @param snapshotName snapshot status that has changed
    */
   public void finishSnapshot(String snapshotName);
+
+  /**
+   * Receive notifications that an external snapshot has failed
+   * @param snapshotName name of the snapshot that has failed
+   * @param reason information on why the snapshot failed
+   */
+  public void remoteSnapshotFailure(String snapshotName, String reason);
 }

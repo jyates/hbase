@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RegionProgressMonitor;
-import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RunningSnapshotErrorMonitor;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RunningSnapshotFailureMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
 
 /**
@@ -47,12 +47,12 @@ public class RegionSnapshotOperationStatus implements RegionProgressMonitor {
     this.totalRegions = regionCount;
   }
 
-  public boolean checkDone(RunningSnapshotErrorMonitor failureMonitor) {
+  public boolean checkDone(SnapshotErrorMonitor failureMonitor) {
     LOG.debug("Expecting " + totalRegions + " to be involved in snapshot.");
     return waitOnCondition(done, failureMonitor, "regions to complete");
   }
 
-  public boolean waitForRegionsToStabilize(RunningSnapshotErrorMonitor failureMonitor) {
+  public boolean waitForRegionsToStabilize(RunningSnapshotFailureMonitor failureMonitor) {
     LOG.debug("Expecting " + totalRegions + " to be involved in snapshot.");
     return waitOnCondition(stabilized, failureMonitor, "regions to stabilize");
   }
@@ -63,7 +63,7 @@ public class RegionSnapshotOperationStatus implements RegionProgressMonitor {
       try {
         if (this.stabilized.await(wakeFrequency, TimeUnit.MILLISECONDS)) break;
         logStatus();
-        if (failureMonitor.checkForError(this.getClass())) {
+        if (failureMonitor.checkForError()) {
           LOG.debug("Failure monitor found an error - not waiting for " + waitingOn);
           return false;
         }

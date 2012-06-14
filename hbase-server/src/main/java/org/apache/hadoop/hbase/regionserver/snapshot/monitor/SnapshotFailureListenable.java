@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
 
-import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
 
 /**
  * Listener for all snapshot failures for all reasons (internal and external)
@@ -25,6 +24,4 @@ import org.apache.hadoop.hbase.regionserver.snapshot.SnapshotFailureListener;
 public interface SnapshotFailureListenable {
 
   public void listenForSnapshotFailure(SnapshotFailureListener failable);
-
-  public void stopListening(SnapshotFailureListener failable);
 }

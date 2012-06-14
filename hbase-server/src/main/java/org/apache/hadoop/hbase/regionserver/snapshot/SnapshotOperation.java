@@ -20,24 +20,25 @@ package org.apache.hadoop.hbase.regionserver.snapshot;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorMonitor;
-import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureListener;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureMonitor;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
  * Operation that actually does all the work of taking a snapshot
  * per-regionserver
  */
-public abstract class SnapshotOperation implements Runnable {
+public abstract class SnapshotOperation implements Runnable, SnapshotErrorMonitor {
 
   private static final Log LOG = LogFactory.getLog(SnapshotOperation.class);
-  protected final SnapshotErrorMonitor errorMonitor;
   private final SnapshotFailureListener failureListener;
+  protected final SnapshotErrorMonitor errorMonitor;
   protected final SnapshotDescriptor snapshot;
 
-  public SnapshotOperation(SnapshotErrorMonitor monitor, SnapshotFailureListener listener,
-      SnapshotDescriptor snapshot) {
+
+  public SnapshotOperation(SnapshotFailureMonitor monitor, SnapshotDescriptor snapshot) {
     this.errorMonitor = monitor;
-    this.failureListener = listener;
+    this.failureListener = monitor;
     this.snapshot = snapshot;
   }
 
@@ -45,14 +46,12 @@ public abstract class SnapshotOperation implements Runnable {
     LOG.error("Failing snapshot becuase:" + reason, t);
     failureListener.snapshotFailure(snapshot, reason);
   }
-
-
-  /**
-   * @see SnapshotFailureMonitor#checkFailure()
-   * @throws SnapshotCreationException
-   */
-  protected void checkFailure() throws SnapshotCreationException {
-    this.errorMonitor.checkForError(this.getClass());
+  
+  @Override
+  public boolean checkForError()
+  {
+    return this.errorMonitor.checkForError();
   }
+
 
 }

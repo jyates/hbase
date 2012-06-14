@@ -28,8 +28,7 @@ public interface SnapshotErrorMonitor {
 
   /**
    * Check for an error in a snapshot
-   * @param clazz Class calling the check
    * @return <tt>true</tt> if an error exists, <tt>false</tt> otherwise
    */
-  public <T> boolean checkForError(Class<T> clazz);
+  public boolean checkForError();
 }

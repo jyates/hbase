@@ -7,6 +7,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureListener;
 import org.apache.hadoop.hbase.server.snapshot.ZKSnapshotController;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Writables;
@@ -22,7 +23,8 @@ import com.google.common.base.Preconditions;
  * Responds to HMaster based updated to the snapshot zk nodes and can report
  * back status as the RS snapshot progresses.
  */
-public class RegionZKSnapshotController extends ZKSnapshotController {
+public class RegionZKSnapshotController extends ZKSnapshotController implements
+    SnapshotFailureListener {
   static final Log LOG = LogFactory.getLog(RegionZKSnapshotController.class);
 
   private final SnapshotListener listener;
@@ -183,16 +185,19 @@ public class RegionZKSnapshotController extends ZKSnapshotController {
    * Abort the snapshot because of an internal reason (timeout, exception,etc)
    * @param snapshot snapshot that has been aborted
    * @param message reason describing why aborting
-   * @throws KeeperException if an unexpected {@link KeeperException} occurs
    */
-  void abortSnapshot(SnapshotDescriptor snapshot, String message)
-      throws KeeperException {
+  @Override
+  public void snapshotFailure(SnapshotDescriptor snapshot, String message) {
     LOG.debug("Aborting snapshot (" + snapshot + ") in zk because" + message);
     String abortPath = ZKUtil.joinZNode(abortZnode, snapshot.getSnapshotNameAsString());
+    try {
     // check to see if we are already aborting, and if abort the snapshot
     if (ZKUtil.checkExists(watcher, abortPath) < 0) {
       String joinPath = ZKUtil.joinZNode(abortPath, parent.getServerName().toString());
       ZKUtil.createWithParents(watcher, joinPath);
+      }
+    } catch (KeeperException e) {
+      LOG.error("Couldn't fail snapshot properly due to ZK issue", e);
     }
   }
 

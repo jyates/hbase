@@ -177,7 +177,9 @@ public class TestSnapshotFromClient {
     // make sure we don't have any snapshots
     assertEquals(0, admin.listSnapshots().length);
   }
-
+  
+  
+  
   private void logFSTree(Path root) throws IOException {
     LOG.debug("Current file system:");
     logFSTree(root, "|-");
