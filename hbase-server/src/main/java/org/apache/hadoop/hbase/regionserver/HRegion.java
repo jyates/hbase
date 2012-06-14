@@ -2541,6 +2541,7 @@ public class HRegion implements HeapSize { // , Writable{
       // tell the monitor that we have reached a stable point
       monitor.stabilize();
 
+      LOG.debug("Ready to begin snapshotting region files.");
       // 2. Add references to meta about the store files
       if (failureMonitor.checkForError()) {
         throw new ExternalSnapshotCreationException();

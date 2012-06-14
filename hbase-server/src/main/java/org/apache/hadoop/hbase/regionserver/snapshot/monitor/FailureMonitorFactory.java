@@ -113,7 +113,8 @@ public class FailureMonitorFactory {
     @Override
     public boolean checkForError() {
       // get the caller of this method. Should be the direct calling class
-      StackTraceElement elem = new Throwable().fillInStackTrace().getStackTrace()[2];
+      // 0 = this, 1 = caller
+      StackTraceElement elem = new Throwable().fillInStackTrace().getStackTrace()[1];
       Class<?> clazz;
       try {
         clazz = Class.forName(elem.getClassName());

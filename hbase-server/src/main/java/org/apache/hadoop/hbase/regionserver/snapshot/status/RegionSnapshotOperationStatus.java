@@ -47,7 +47,7 @@ public class RegionSnapshotOperationStatus implements RegionProgressMonitor {
     this.totalRegions = regionCount;
   }
 
-  public boolean checkDone(SnapshotErrorMonitor failureMonitor) {
+  public boolean waitUntilDone(SnapshotErrorMonitor failureMonitor) {
     LOG.debug("Expecting " + totalRegions + " to be involved in snapshot.");
     return waitOnCondition(done, failureMonitor, "regions to complete");
   }

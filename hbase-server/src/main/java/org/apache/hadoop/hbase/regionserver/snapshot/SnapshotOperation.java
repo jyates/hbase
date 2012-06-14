@@ -43,7 +43,7 @@ public abstract class SnapshotOperation implements Runnable, SnapshotErrorMonito
   }
 
   protected void failSnapshot(String reason, Throwable t) {
-    LOG.error("Failing snapshot becuase:" + reason, t);
+    LOG.error("Failing snapshot because:" + reason, t);
     failureListener.snapshotFailure(snapshot, reason);
   }
   

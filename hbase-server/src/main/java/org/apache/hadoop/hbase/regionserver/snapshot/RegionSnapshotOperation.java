@@ -38,8 +38,10 @@ class RegionSnapshotOperation extends SnapshotOperation {
   private static final Log LOG = LogFactory.getLog(RegionSnapshotOperation.class);
   private final HRegion region;
   private final RegionSnapshotOperationStatus status;
-  private CountDownLatch finishLatch;
-  private CountDownLatch completeLatch;
+  private final CountDownLatch joinedLatch;
+  private final CountDownLatch finishLatch;
+  private final CountDownLatch completeLatch;
+  private final Thread internal = new Thread(this);
 
   public RegionSnapshotOperation(SnapshotDescriptor snapshot,
       HRegion region,
@@ -48,8 +50,23 @@ class RegionSnapshotOperation extends SnapshotOperation {
     super(errorMonitor, snapshot);
     this.region = region;
     this.status = status;
+    this.joinedLatch = new CountDownLatch(1);
     this.finishLatch = new CountDownLatch(1);
     this.completeLatch = new CountDownLatch(1);
+    internal.setDaemon(true);
+  }
+
+  public Runnable runner(){
+    // since the region running has two parts, we need a separate thread to
+    // launch this thread and just wait on the finish latch
+    return new Runnable(){
+      @Override
+      public void run() {
+        internal.start();
+        waitForLatch(joinedLatch);
+      }
+      
+    };
   }
 
   @Override
@@ -60,19 +77,13 @@ class RegionSnapshotOperation extends SnapshotOperation {
     try {
       region.startSnapshot(snapshot, status, this.errorMonitor);
       LOG.debug("Region completed snapshot, waiting to commit snapshot.");
+      this.joinedLatch.countDown();
 
       // wait until the finish latch has been triggered
-      do {
-        try {
-          LOG.debug("Waiting to finish the snapshot.");
-          this.finishLatch.await();
-          LOG.debug("Latch at " + this.finishLatch.getCount() + "!");
-        } catch (InterruptedException e) {
-          LOG.debug("Wait for finish interrupted, done:" + (this.finishLatch.getCount() == 0));
-        }
-      } while (this.finishLatch.getCount() != 0);
-      // and then finish the snapshot in the finally block to ensure the region
-      // gets unblocked
+      waitForLatch(finishLatch);
+
+      // finish the snapshot in the finally block to ensure the region is
+      // available after a snapshot finishes/completes
       LOG.debug("Finishing snapshot on region:" + region);
     } catch (IOException e) {
       LOG.error("Region had an internal error and couldn't finish snapshot,", e);
@@ -92,14 +103,23 @@ class RegionSnapshotOperation extends SnapshotOperation {
   public void finish() {
     this.finishLatch.countDown();
     LOG.debug("Counted down latch.(" + this.finishLatch.getCount() + ")");
-    while (completeLatch.getCount() > 0) {
+    waitForLatch(completeLatch);
+  }
+
+  /**
+   * Wait for latch to count to zero, ignoring any spurious wake-ups
+   * @param latch latch to wait on
+   */
+  private void waitForLatch(CountDownLatch latch) {
+    do {
       try {
-      LOG.debug("Waiting for region to complete snapshot...");
-        completeLatch.await();
+        LOG.debug("Waiting to finish the snapshot.");
+        latch.await();
+        LOG.debug("Latch at " + latch.getCount() + "!");
       } catch (InterruptedException e) {
-        LOG.debug("Wait for complete interrupted, done:" + completeLatch.getCount());
+        LOG.debug("Wait for latch interrupted, done:" + (latch.getCount() == 0));
       }
-    }
+    } while (this.finishLatch.getCount() != 0);
   }
 
 }

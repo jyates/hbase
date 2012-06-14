@@ -21,6 +21,8 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
@@ -31,7 +33,7 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
  * allowing easier management of multiple listeners
  */
 public class SnapshotErrorPropagator implements SnapshotFailureListener, SnapshotFailureListenable {
-
+  private static final Log LOG = LogFactory.getLog(SnapshotErrorPropagator.class);
   private List<WeakReference<SnapshotFailureListener>> listeners = new ArrayList<WeakReference<SnapshotFailureListener>>();
 
   @Override
@@ -41,6 +43,7 @@ public class SnapshotErrorPropagator implements SnapshotFailureListener, Snapsho
 
   @Override
   public synchronized void snapshotFailure(SnapshotDescriptor snapshot, String description) {
+    LOG.debug("Recieved snapshot failure, notifying listeners...");
     for (int i = 0; i < listeners.size(); i++) {
       SnapshotFailureListener listener = listeners.get(i).get();
       // if the listener has been removed, then drop it from the list

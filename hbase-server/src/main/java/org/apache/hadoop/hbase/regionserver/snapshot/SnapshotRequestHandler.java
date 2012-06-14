@@ -101,12 +101,12 @@ public class SnapshotRequestHandler {
 
       // 2. submit those operations to the region snapshot runner
       for (RegionSnapshotOperation op : ops)
-        submitTask(op);
+        taskPool.submit(op.runner(), null);
 
 
       // 2.1 do the copy table async at the same time
       if (errorMonitor.checkForError()) return false;
-      taskPool.submit((new TableInfoCopyOperation(errorMonitor, snapshot, rss)), null);
+      submitTask(new TableInfoCopyOperation(errorMonitor, snapshot, rss));
 
       // wait for all the regions to become stable (no more writes) so we can
       // put a reliable snapshot point in the WAL
@@ -121,12 +121,11 @@ public class SnapshotRequestHandler {
           .getTableDesc());
 
       // 3.1 asynchronously add reference for the WALs
-      taskPool.submit(new WALReferenceOperation(snapshot, errorMonitor, this.log, rss), null);
+      submitTask(new WALReferenceOperation(snapshot, errorMonitor, this.log, rss));
 
       LOG.debug("Wating for snapshot to finish.");
       // 4. Wait for the regions and the wal to complete or an error
       //wait for the regions to complete their snapshotting
-      status.checkDone(errorMonitor);
       while (count > 0) {
         try {
           LOG.debug("Snapshot isn't finished.");
@@ -159,7 +158,8 @@ public class SnapshotRequestHandler {
   }
   
   /**
-   * Submit a task to the pool. For speed, only 1 caller of this method is allowed, letting us avoid locking to increment the counter
+   * Submit a task to the pool. For speed, only 1 caller of this method is
+   * allowed, letting us avoid locking to increment the counter
    */
   private void submitTask(Runnable task) {
     this.taskPool.submit(task, null);
