@@ -34,6 +34,7 @@ import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.FailureMonitorFactory;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.RunningSnapshotFailureMonitor;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotErrorPropagator;
+import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFailureListener;
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotTimer;
 import org.apache.hadoop.hbase.regionserver.snapshot.status.RegionSnapshotOperationStatus;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
@@ -66,7 +67,8 @@ public class SnapshotRequestHandler {
   private int count = 0;
 
   public SnapshotRequestHandler(SnapshotDescriptor snapshot, List<HRegion> regions, HLog log,
-      RegionServerServices rss, RunningSnapshotFailureMonitor monitor, long wakeFreq,
+      RegionServerServices rss, RunningSnapshotFailureMonitor monitor,
+      SnapshotFailureListener errorMonitor, long wakeFreq,
       ExecutorService pool) {
     this.rss = rss;
     this.snapshot = snapshot;
@@ -96,7 +98,7 @@ public class SnapshotRequestHandler {
       this.ops = new ArrayList<RegionSnapshotOperation>(regions.size());
       for (HRegion region : regions) {
         // TODO create a failure monitor for the region
-        ops.add(new RegionSnapshotOperation(snapshot, region, errorMonitor, status));
+        ops.add(new RegionSnapshotOperation(snapshot, region, errorMonitor, status, wakeFrequency));
       }
 
       // 2. submit those operations to the region snapshot runner
@@ -144,19 +146,27 @@ public class SnapshotRequestHandler {
       }
       LOG.debug("Snapshot completed on regionserver.");
     } catch (RejectedExecutionException e) {
-      LOG.error("Failing snapshot because we couldn't run a part of the snapshot", e);
-      return false;
+      return failAndReturn("Failing snapshot because we couldn't run a part of the snapshot", e);
     } catch (SnapshotCreationException e) {
-      LOG.error("Failing snapshot because got creation exception", e);
-      return false;
+      return  failAndReturn("Failing snapshot because got creation exception", e);
     } catch (IOException e) {
-      LOG.error("Failing snapshot because got general IOException", e);
-      return false;
+      return  failAndReturn("Failing snapshot because got general IOException", e);
     }
     timeoutMonitor.complete();
     return true;
   }
   
+  /**
+   * @param string
+   * @param e
+   * @return
+   */
+  private boolean failAndReturn(String msg, Exception e) {
+    LOG.error(msg, e);
+    this.errorMonitor.snapshotFailure(snapshot, msg);
+    return false;
+  }
+
   /**
    * Submit a task to the pool. For speed, only 1 caller of this method is
    * allowed, letting us avoid locking to increment the counter
@@ -215,26 +225,27 @@ public class SnapshotRequestHandler {
     private final long wakeFrequency;
     private final ThreadPoolExecutor pool;
     private final FailureMonitorFactory errorMonitorFactory;
+    private final SnapshotErrorPropagator externalMonitor;
 
-    public Factory(HLog log, ThreadPoolExecutor pool, FailureMonitorFactory errorMonitorFactory,
+    public Factory(HLog log, ThreadPoolExecutor pool, SnapshotErrorPropagator externalMonitor,
+        FailureMonitorFactory errorMonitorFactory,
         long wakeFrequency) {
       super();
       this.log = log;
       this.wakeFrequency = wakeFrequency;
       this.pool = pool;
       this.errorMonitorFactory = errorMonitorFactory;
+      this.externalMonitor = externalMonitor;
     }
 
     public SnapshotRequestHandler create(SnapshotDescriptor desc, List<HRegion> regions,
-        SnapshotErrorPropagator externalMonitor,
         RegionServerServices rss) {
       // make sure any of the external listeners start watching for failures in
       // this snapshot
       RunningSnapshotFailureMonitor monitor = errorMonitorFactory.getRunningSnapshotFailureMonitor(
         desc, externalMonitor);
-      externalMonitor.listenForSnapshotFailure(monitor);
       // and then create the request handler
-      return new SnapshotRequestHandler(desc, regions, log, rss, monitor,
+      return new SnapshotRequestHandler(desc, regions, log, rss, monitor, externalMonitor,
           wakeFrequency, pool);
     }
 

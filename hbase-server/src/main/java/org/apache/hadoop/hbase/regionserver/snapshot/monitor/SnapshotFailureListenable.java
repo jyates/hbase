@@ -23,5 +23,13 @@ package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
  */
 public interface SnapshotFailureListenable {
 
+  /**
+   * Listen for failures to a given snapshot.
+   * <p>
+   * Potentially called when <i>any</i> snapshot is failed. If you only want to
+   * listen for a single snapshot failure, you should consider using a
+   * {@link RunningSnapshotFailureMonitor}.
+   * @param failable listener for the failures
+   */
   public void listenForSnapshotFailure(SnapshotFailureListener failable);
 }

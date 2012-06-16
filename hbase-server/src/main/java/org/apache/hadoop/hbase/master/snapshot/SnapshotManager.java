@@ -67,7 +67,6 @@ public class SnapshotManager implements MasterSnapshotStatusListener {
 
     this.controller = new MasterZKSnapshotController(watcher, this);
     this.master = master;
-
     this.sentinel = null;
   }
 
@@ -107,7 +106,7 @@ public class SnapshotManager implements MasterSnapshotStatusListener {
           // this is better since we let the master handle a regionserver being
           // offline at snapshot start (but leads to a potential race condition
           // that needs to be checked for if a regionserver comes online and
-          // attempts to host the region that we are snapshotting
+          // attempts to host the region that we are snapshotting)
 
           // setup monitoring for this snapshot
           this.sentinel = new SnapshotSentinel(hsd, master, this, Lists.transform(regions,

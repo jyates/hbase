@@ -22,7 +22,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -144,16 +144,15 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
     }
 
     // create the snapshot requester and associated pool
-    // XXX - do we need to define our own custom thread factory?
     ThreadPoolExecutor service;
     service = new ThreadPoolExecutor(1, maxSnapshotThreads, maxSnapshotKeepAlive, TimeUnit.SECONDS,
-        new SynchronousQueue<Runnable>(), new DaemonThreadFactory("rs("
+        new LinkedBlockingQueue<Runnable>(), new DaemonThreadFactory("rs("
             + this.parent.getServerName().toString() + ")-snapshot-pool"));
 
     // setup the request handler
     failureMonitorFactory = new FailureMonitorFactory(maxSnapshotWaitTime);
     requestHandlerFactory = new SnapshotRequestHandler.Factory(parent.getWAL(), service,
-        failureMonitorFactory, wakeFrequency);
+        errorPropagator, failureMonitorFactory, wakeFrequency);
   }
   
   /**
@@ -216,7 +215,6 @@ public class RegionServerSnapshotHandler extends Configured implements SnapshotF
     LOG.debug("Have some regions involved in snapshot:" + involvedRegions);
     // 1. Create a snapshot request
     SnapshotRequestHandler handler = requestHandlerFactory.create(snapshot, involvedRegions,
-      errorPropagator,
       this.parent);
     // 2. add the request handler to the current request
     this.requests.put(snapshot, handler);

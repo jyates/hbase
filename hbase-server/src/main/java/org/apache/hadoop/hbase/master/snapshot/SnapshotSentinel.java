@@ -28,6 +28,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.master.HMaster;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 
@@ -155,8 +156,9 @@ public class SnapshotSentinel {
 
   /**
    * Kickoff the snapshot and wait for the regionservers to finish.
+   * @throws SnapshotCreationException if the snapshot could not be created
    */
-  public void run() {
+  public void run() throws SnapshotCreationException {
     // wait on the prepare phase
     long now = EnvironmentEdgeManager.currentTimeMillis();
     while (waitToPrepare.size() > 0) {
@@ -166,14 +168,11 @@ public class SnapshotSentinel {
         // Ignore interruptions
       }
       // check to make sure we should go on
-      if (this.checkExceedsTimeout(now) || this.failure) {
-        LOG.error("Snapshot failed - quiting sentinel");
-        return;
-      }
+      checkFailure(now);
     }
+    // all the regions have prepared, so now wait on completion
     this.setStatus(GlobalSnapshotStatus.RS_COMMITTING_SNAPSHOT);
     this.progressListener.allServersPreparedSnapshot();
-    // wait for all the regions to complete
     while (waitToFinish.size() > 0) {
       try {
         this.completeLatch.await(wakeFrequency, TimeUnit.MILLISECONDS);
@@ -181,13 +180,17 @@ public class SnapshotSentinel {
         // Ignore interruptions
       }
       // check to make sure we should go on
-      if (this.checkExceedsTimeout(now) || this.failure) {
-        LOG.error("Snapshot failed - quiting sentinel");
-        return;
-      }
+      checkFailure(now);
     }
     this.setStatus(GlobalSnapshotStatus.ALL_RS_FINISHED);
     LOG.info("Done waiting - snapshot finished!");
+  }
+
+  private void checkFailure(long now) throws SnapshotCreationException {
+    if (this.checkExceedsTimeout(now) || this.failure) {
+      LOG.error("Snapshot failed - quiting sentinel");
+      throw new SnapshotCreationException("Snapshot could not be created!", hsd);
+    }
   }
 
 

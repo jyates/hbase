@@ -13,8 +13,8 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -24,12 +24,12 @@ import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.TestSnapshotFromClient;
@@ -37,16 +37,17 @@ import org.apache.hadoop.hbase.regionserver.snapshot.RegionServerSnapshotHandler
 import org.apache.hadoop.hbase.regionserver.snapshot.monitor.SnapshotFaultInjector;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.FSTableDescriptors;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Test different snapshot aspects from the server-side
  */
+@Category(MediumTests.class)
 public class TestSnapshotFromServer {
 
   private static final Log LOG = LogFactory.getLog(TestSnapshotFromClient.class);
@@ -126,12 +127,14 @@ public class TestSnapshotFromServer {
 
     HRegionServer server = UTIL.getRSForFirstRegionInTable(TABLE_NAME);
     RegionServerSnapshotHandler handler = server.snapshotHandler;
+    final boolean[] faulted = new boolean[] { false };
+
     handler.addFaultInjector(new SnapshotFaultInjector() {
-      
       @Override
       public boolean injectFault(Class<?> clazz) {
         if (clazz.equals(HRegion.class)) {
-        LOG.debug("injecting fault for:"+clazz);
+          LOG.debug("injecting fault for:" + clazz);
+          faulted[0] = true;
           return true;
         }
         LOG.debug("NOT injecting fault for:" + clazz);
@@ -147,21 +150,41 @@ public class TestSnapshotFromServer {
     } catch (IOException e) {
       // ignore - this should happen
     }
+    assertTrue("Snapshot wasn't faulted by the injection handler", faulted[0]);
     SnapshotDescriptor snapshot = new SnapshotDescriptor(snapshotName, TABLE_NAME);
     // check the directory structure
     FileSystem fs = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
     Path rootDir = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
     // check that the snapshot dir was created
+    logFSTree(new Path(UTIL.getConfiguration().get(HConstants.HBASE_DIR)));
     Path snapshotDir = SnapshotDescriptor.getSnapshotDir(rootDir);
     assertTrue(fs.exists(snapshotDir));
     // check that we cleanup after ourselves on failure
-    assertEquals(1, fs.listStatus(snapshotDir).length);
+    assertEquals("There is not just one directory in the snapshot dir", 1,
+      fs.listStatus(snapshotDir).length);
     Path snapshotTmp = SnapshotDescriptor.getWorkingSnapshotDir(snapshot, rootDir);
-    assertTrue(fs.exists(snapshotTmp));
-    assertEquals(0, fs.listStatus(snapshotTmp));
+    assertFalse("Working snapshot directory still exists!", fs.exists(snapshotTmp));
+    assertEquals("There are still temporary snapshot files", 0,
+      fs.listStatus(fs.listStatus(snapshotDir)[0].getPath()).length);
 
     // make sure we don't have any snapshots
     assertEquals(0, admin.listSnapshots().length);
+  }
+
+  private void logFSTree(Path root) throws IOException {
+    LOG.debug("Current file system:");
+    logFSTree(root, "|-");
+  }
+
+  private void logFSTree(Path root, String prefix) throws IOException {
+    for (FileStatus file : UTIL.getDFSCluster().getFileSystem().listStatus(root)) {
+      if (file.isDir()) {
+        LOG.debug(prefix + file.getPath().getName() + "/");
+        logFSTree(file.getPath(), prefix + "---");
+      } else {
+        LOG.debug(prefix + file.getPath().getName());
+      }
+    }
   }
 
 }

@@ -23,7 +23,8 @@ import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 /**
  * Time a given snapshot
  */
-public class SnapshotTimer implements Runnable, SnapshotFailureListenable {
+public class SnapshotTimer extends SnapshotErrorPropagator implements Runnable,
+    SnapshotFailureListenable {
 
   private final long maxTime;
   private final long startTime;
@@ -71,7 +72,7 @@ public class SnapshotTimer implements Runnable, SnapshotFailureListenable {
     } while (!complete && timeLapse() < maxTime);
     if (!this.complete) {
       if (this.listener != null) {
-      this.listener.snapshotFailure(snapshot, "Snapshot timeout elapsed!");
+        super.snapshotFailure(snapshot, "Snapshot timeout elapsed!");
       }
     }
   }

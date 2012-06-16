@@ -22,6 +22,7 @@ import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 /**
  * Snapshot failed to be created due to a timeout
  */
+@SuppressWarnings("serial")
 public class SnapshotTimeoutException extends SnapshotCreationException {
 
   public SnapshotTimeoutException(long max, long elapsedTime) {

@@ -2495,7 +2495,7 @@ public class HRegion implements HeapSize { // , Writable{
     try {
       // 0. lock the region to make sure we don't get anymore writes/close/flush
       // mid-snapshot.
-      checkResources();
+      // checkResources();
       startRegionOperation();
 
       // Stop updates while we take a snapshot of the current hfiles. We only

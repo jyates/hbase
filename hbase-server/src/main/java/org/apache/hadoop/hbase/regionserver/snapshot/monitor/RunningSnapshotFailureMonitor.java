@@ -13,6 +13,8 @@
  */
 package org.apache.hadoop.hbase.regionserver.snapshot.monitor;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 
 /**
@@ -20,31 +22,51 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
  * errors around the elements in the snapshot.
  * <p>
  * An instance from the
- * {@link FailureMonitorFactory#getRunningSnapshotFailureMonitor(SnapshotDescriptor, SnapshotFailureListenable)}
+ * {@link FailureMonitorFactory#getRunningSnapshotFailureMonitor(SnapshotDescriptor, SnapshotFailureListener)}
  * should be passed to all the snapshot elements to ensure that the external
  * errors propagate to the running snapshot and internal errors propagate out.
  */
-public abstract class RunningSnapshotFailureMonitor extends SnapshotErrorPropagator implements
-    SnapshotFailureMonitor, SnapshotFailureListenable {
+public abstract class RunningSnapshotFailureMonitor implements SnapshotFailureMonitor {
+  private static final Log LOG = LogFactory.getLog(RunningSnapshotFailureMonitor.class);
+  protected final SnapshotDescriptor snapshot;
+  // dont use the error propagator so we can avoid multiple propagations
+  private final SnapshotFailureListener errorListener;
+  private volatile boolean failed = false;
 
-  protected SnapshotDescriptor snapshot;
-
-  public RunningSnapshotFailureMonitor(SnapshotDescriptor snapshot) {
+  public RunningSnapshotFailureMonitor(SnapshotDescriptor snapshot,
+      SnapshotFailureListener externalErrorListener) {
     this.snapshot = snapshot;
+    this.errorListener = externalErrorListener;
   }
 
   @Override
-  public final void snapshotFailure(SnapshotDescriptor snapshot, String description) {
-    if (this.snapshot.equals(snapshot)) this.snapshotFailure(description);
-    // make sure all the listeners get invoked
-    super.snapshotFailure(snapshot, description);
+  public synchronized final void snapshotFailure(SnapshotDescriptor snapshot, String description) {
+    LOG.debug("Got a snapshot failure notification!");
+    // if we don't care, just return
+    if (failed || !this.snapshot.equals(snapshot)) return;
+
+    LOG.debug("Propagating snapshot failure notification");
+    // propagate the error down
+    this.snapshotFailure(description);
+    // mark this as failed
+    this.failed = true;
+    // make sure all the listener get invoked
+    errorListener.snapshotFailure(snapshot, description);
+  }
+
+  @Override
+  public boolean checkForError() {
+    return this.failed;
   }
 
   /**
-   * Notification that the snapshot has failed.
+   * Notification that the snapshot has failed. Subclass should override to get
+   * custom failure handling; overriding will not affect realization of failure
    * @param description reason why the snapshot failed
    */
-  protected abstract void snapshotFailure(String description);
+  protected void snapshotFailure(String description) {
+    LOG.debug("Failing snapshot because: " + description);
+  }
 
   /**
    * Get a snapshot timer bound to this monitor

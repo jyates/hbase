@@ -35,7 +35,6 @@ public abstract class SnapshotOperation implements Runnable, SnapshotErrorMonito
   protected final SnapshotErrorMonitor errorMonitor;
   protected final SnapshotDescriptor snapshot;
 
-
   public SnapshotOperation(SnapshotFailureMonitor monitor, SnapshotDescriptor snapshot) {
     this.errorMonitor = monitor;
     this.failureListener = monitor;
@@ -48,10 +47,7 @@ public abstract class SnapshotOperation implements Runnable, SnapshotErrorMonito
   }
   
   @Override
-  public boolean checkForError()
-  {
+  public boolean checkForError() {
     return this.errorMonitor.checkForError();
   }
-
-
 }

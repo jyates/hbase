@@ -1128,6 +1128,8 @@ Server {
       // if we fail to create the snapshot, just abort it
       LOG.error("Failed to create snapshot:" + e);
       snapshotManager.abort(hsd);
+      // propagate the error back to the client
+      throw e;
     }
   }
 

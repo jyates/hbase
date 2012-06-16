@@ -23,6 +23,7 @@ import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.server.snapshot.ZKSnapshotController;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.util.Writables;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
@@ -83,6 +84,23 @@ public class MasterZKSnapshotController extends ZKSnapshotController {
     }
   }
 
+  @Override
+  public void nodeCreated(String path) {
+    if (!path.startsWith(watcher.snapshotZNode)) return;
+    // only node that can be created that we care about could be the abort node
+    try {
+      LOG.debug("Node created: " + path);
+      if (path.startsWith(abortZnode)) {
+        for (String child : ZKUtil.listChildrenNoWatch(watcher, path)) {
+          this.manager.rsAbortedSnapshot(child);
+        }
+      }
+    } catch (KeeperException e) {
+      // simple catch-all incase of losing zk connection
+      throw new RuntimeException(e);
+    }
+  }
+
   private void logFSTree(String root) throws KeeperException {
     LOG.debug("Current zk system:");
     logFSTree(root, "|-");
@@ -108,11 +126,17 @@ public class MasterZKSnapshotController extends ZKSnapshotController {
    * @param sd {@link SnapshotDescriptor} of the snapshot to create
    * @throws IOException
    */
-  void startSnapshot(SnapshotDescriptor sd)
-      throws KeeperException, IOException {
+  void startSnapshot(SnapshotDescriptor sd) throws KeeperException, IOException {
+    // start watching for the abort node
+    String abortNode = ZKUtil.joinZNode(abortZnode, sd.getSnapshotNameAsString());
+    if (ZKUtil.watchAndCheckExists(watcher, abortNode)) {
+      throw new SnapshotCreationException("Snapshot already aborted before created.");
+    }
+
     // create the start barrier
     String snapshotNode = ZKUtil.joinZNode(startSnapshotBarrier, sd.getSnapshotNameAsString());
     ZKUtil.createSetData(watcher, snapshotNode, Writables.getBytes(sd));
+
     // start watching for servers that joined, and update with any that are fast
     List<String> children = ZKUtil.listChildrenAndWatchForNewChildren(watcher, snapshotNode);
     childrenJoinedSnapshot(children);
