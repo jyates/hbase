@@ -126,6 +126,22 @@ public class MemStore implements HeapSize {
     }
   }
 
+  /**
+   * Clone a {@link MemStore} from a snapshot of another {@link MemStore}
+   * @param store {@link MemStore} to clone (internally calls {@link #snapshot()} to get a
+   *          consistent view of the {@link MemStore}
+   * @return a {@link MemStore} from a snapshot of the passed in store
+   */
+  static MemStore snapshotAndClone(Store store) {
+    // snapshot the store
+    store.snapshot();
+    // create the new snapshot from the snapshot
+    MemStore snapshot = new MemStore(store.conf, store.comparator);
+    snapshot.kvset = store.memstore.snapshot;
+    snapshot.timeRangeTracker = store.memstore.getSnapshotTimeRangeTracker();
+    return snapshot;
+  }
+
   void dump() {
     for (KeyValue kv: this.kvset) {
       LOG.info(kv);
@@ -522,7 +538,7 @@ public class MemStore implements HeapSize {
    * @param kvs
    * @return change in memstore size
    */
-  public long upsert(List<KeyValue> kvs) {
+  public long upsert(Iterable<KeyValue> kvs) {
    this.lock.readLock().lock();
     try {
       long size = 0;

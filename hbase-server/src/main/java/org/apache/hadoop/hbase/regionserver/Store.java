@@ -168,19 +168,33 @@ public class Store extends SchemaConfigured implements HStore {
   private final Compactor compactor;
 
   /**
-   * Constructor
-   * @param basedir qualified path under which the region directory lives;
-   * generally the table subdirectory
+   * Constructor that creates a store with a fresh (empty) memstore
+   * @param basedir qualified path under which the region directory lives; generally the table
+   *          subdirectory
    * @param region
    * @param family HColumnDescriptor for this column
    * @param fs file system object
-   * @param confParam configuration object
-   * failed.  Can be null.
+   * @param confParam configuration object failed. Can be null.
    * @throws IOException
    */
-  protected Store(Path basedir, HRegion region, HColumnDescriptor family,
-      FileSystem fs, Configuration confParam)
-  throws IOException {
+  protected Store(Path basedir, HRegion region, HColumnDescriptor family, FileSystem fs,
+      Configuration confParam) throws IOException {
+    this(basedir, region, family, fs, confParam, null);
+  }
+
+  /**
+   * Constructor
+   * @param basedir qualified path under which the region directory lives; generally the table
+   *          subdirectory
+   * @param region
+   * @param family HColumnDescriptor for this column
+   * @param fs file system object
+   * @param confParam configuration object failed. Can be null.
+   * @param memstore to back this store. Can be null.
+   * @throws IOException
+   */
+  private Store(Path basedir, HRegion region, HColumnDescriptor family, FileSystem fs,
+      Configuration confParam, MemStore memstore) throws IOException {
     super(new CompoundConfiguration().add(confParam).add(
         family.getValues()), region.getRegionInfo().getTableNameAsString(),
         Bytes.toString(family.getName()));
@@ -212,10 +226,11 @@ public class Store extends SchemaConfigured implements HStore {
         "ms in store " + this);
     // Why not just pass a HColumnDescriptor in here altogether?  Even if have
     // to clone it?
-    scanInfo = new ScanInfo(family.getName(), family.getMinVersions(),
-        family.getMaxVersions(), ttl, family.getKeepDeletedCells(),
-        timeToPurgeDeletes, this.comparator);
-    this.memstore = new MemStore(conf, this.comparator);
+    scanInfo = new ScanInfo(family.getName(), family.getMinVersions(), family.getMaxVersions(),
+        ttl, family.getKeepDeletedCells(), timeToPurgeDeletes, this.comparator);
+
+    // create a new memstore if one wasn't passed in
+    this.memstore = memstore == null ? new MemStore(conf, this.comparator) : memstore;
 
     // By default, compact if storefile.count >= minFilesToCompact
     this.minFilesToCompact = Math.max(2,
@@ -248,6 +263,21 @@ public class Store extends SchemaConfigured implements HStore {
     this.bytesPerChecksum = getBytesPerChecksum(conf);
     // Create a compaction tool instance
     this.compactor = new Compactor(this.conf);
+  }
+
+  /**
+   * Clone the passed in store based on a snapshot of the current state of the store. Since the
+   * passed in store still serves reads from the snapshot (but doesn't write to the snapshot), care
+   * must be taken when dealing with the clone. However, the added benefit here is that any existing
+   * and readers will act normally on the snapshotted kv-set since we just pass around a pointer to
+   * the memstore (rather than a clone). This means any updates to the snapshot will be reflected in
+   * scanners of the primary store.
+   * @param store {@link HStore} to be snapshotted (via {@link #snapshot()} and then cloned.
+   * @return an {@link HStore} who's primary kv-set is a snapshot of the original store
+   */
+  static Store snapshotAndClone(Store store) throws IOException {
+    MemStore snapshot = MemStore.snapshotAndClone(store);
+    return new Store(store.homedir, store.region, store.family, store.fs, store.conf, snapshot);
   }
 
   /**
@@ -2139,7 +2169,7 @@ public class Store extends SchemaConfigured implements HStore {
    * @throws IOException
    */
   @Override
-  public long upsert(List<KeyValue> kvs) throws IOException {
+  public long upsert(Iterable<KeyValue> kvs) throws IOException {
     this.lock.readLock().lock();
     try {
       // TODO: Make this operation atomic w/ MVCC
@@ -2153,16 +2183,16 @@ public class Store extends SchemaConfigured implements HStore {
     return new StoreFlusherImpl(cacheFlushId);
   }
 
-  private class StoreFlusherImpl implements StoreFlusher {
+  class StoreFlusherImpl implements StoreFlusher {
 
     private long cacheFlushId;
-    private SortedSet<KeyValue> snapshot;
+    SortedSet<KeyValue> snapshot;
     private StoreFile storeFile;
     private Path storeFilePath;
-    private TimeRangeTracker snapshotTimeRangeTracker;
+    TimeRangeTracker snapshotTimeRangeTracker;
     private AtomicLong flushedSize;
 
-    private StoreFlusherImpl(long cacheFlushId) {
+    StoreFlusherImpl(long cacheFlushId) {
       this.cacheFlushId = cacheFlushId;
       this.flushedSize = new AtomicLong();
     }

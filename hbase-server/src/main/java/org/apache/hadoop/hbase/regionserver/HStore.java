@@ -78,7 +78,7 @@ public interface HStore extends SchemaAware, HeapSize {
    * @return memstore size delta
    * @throws IOException
    */
-  public long upsert(List<KeyValue> kvs) throws IOException;
+  public long upsert(Iterable<KeyValue> kvs) throws IOException;
 
   /**
    * Adds a value to the memstore
