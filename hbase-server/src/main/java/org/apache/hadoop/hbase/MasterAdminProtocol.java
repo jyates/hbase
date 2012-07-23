@@ -18,11 +18,14 @@
 
 package org.apache.hadoop.hbase;
 
+import java.io.IOException;
+
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.MasterAdminService;
 import org.apache.hadoop.hbase.security.TokenInfo;
 import org.apache.hadoop.hbase.security.KerberosInfo;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AddColumnRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AddColumnResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.CatalogScanRequest;
@@ -64,7 +67,6 @@ import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.StopMasterRe
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsMasterRunningRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsMasterRunningResponse;
 
-
 import com.google.protobuf.RpcController;
 import com.google.protobuf.ServiceException;
 
@@ -93,7 +95,6 @@ public interface MasterAdminProtocol extends
   @Override
   public AddColumnResponse addColumn(RpcController controller, AddColumnRequest req)
   throws ServiceException;
-
   /**
    * Deletes a column from the specified table. Table must be disabled.
    * @param controller Unused (set to null).
@@ -346,4 +347,26 @@ public interface MasterAdminProtocol extends
   @Override
   public IsCatalogJanitorEnabledResponse isCatalogJanitorEnabled(RpcController c,
       IsCatalogJanitorEnabledRequest req) throws ServiceException;
+
+  // TODO include these in Protobufs
+  /**
+   * Create a snapshot for the given table. (Synchronous operation that may timeout - current impl).
+   * @param snapshot description of the snapshot to take
+   * @throws IOException if the snapshot cannot be made
+   */
+  public void snapshot(SnapshotDescriptor snapshot) throws IOException;
+
+  /**
+   * List existing snapshots.
+   * @return a list of snapshot descriptor
+   * @throws IOException e
+   */
+  public SnapshotDescriptor[] listSnapshots() throws IOException;
+
+  /**
+   * Delete an existing snapshot. This method can also be used to clean up a aborted snapshot.
+   * @param snapshotName snapshot to delete
+   * @throws IOException e
+   */
+  public void deleteSnapshot(final byte[] snapshotName) throws IOException;
 }

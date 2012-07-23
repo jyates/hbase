@@ -29,7 +29,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,6 +37,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.management.ObjectName;
@@ -48,6 +48,9 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Abortable;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.Chore;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.DeserializationException;
@@ -63,6 +66,7 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableNotDisabledException;
 import org.apache.hadoop.hbase.TableNotFoundException;
+import org.apache.hadoop.hbase.TablePartiallyOpenException;
 import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
@@ -73,6 +77,7 @@ import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitorBase;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
+import org.apache.hadoop.hbase.executor.EventHandler.EventType;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.executor.ExecutorService.ExecutorType;
 import org.apache.hadoop.hbase.ipc.HBaseRPC;
@@ -86,6 +91,7 @@ import org.apache.hadoop.hbase.protobuf.ResponseConverter;
 import org.apache.hadoop.hbase.ipc.ProtocolSignature;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.master.balancer.LoadBalancerFactory;
+import org.apache.hadoop.hbase.master.cleaner.CleanerChore;
 import org.apache.hadoop.hbase.master.cleaner.HFileCleaner;
 import org.apache.hadoop.hbase.master.cleaner.LogCleaner;
 import org.apache.hadoop.hbase.master.handler.CreateTableHandler;
@@ -99,13 +105,19 @@ import org.apache.hadoop.hbase.master.handler.TableDeleteFamilyHandler;
 import org.apache.hadoop.hbase.master.handler.TableEventHandler;
 import org.apache.hadoop.hbase.master.handler.TableModifyFamilyHandler;
 import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
+import org.apache.hadoop.hbase.master.snapshot.manage.SnapshotManager;
+import org.apache.hadoop.hbase.master.snapshot.manage.SnapshotSentinel;
 import org.apache.hadoop.hbase.monitoring.MemoryBoundedLogMessageBuffer;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.replication.regionserver.Replication;
 import org.apache.hadoop.hbase.security.User;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
+import org.apache.hadoop.hbase.snapshot.SnapshotExistsException;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.CompressionTest;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.HFileArchiveUtil;
@@ -294,6 +306,12 @@ Server {
 
   /** time interval for emitting metrics values */
   private final int msgInterval;
+
+  // monitor for snapshot of hbase tables
+  private SnapshotManager snapshotManager;
+  private final AtomicBoolean isSnapshotDone = new AtomicBoolean();
+  private final DoneListener snapshotDone = new DoneListener(isSnapshotDone);
+
   /**
    * MX Bean for MasterInfo
    */
@@ -525,6 +543,14 @@ Server {
         ", sessionid=0x" +
         Long.toHexString(this.zooKeeper.getRecoverableZooKeeper().getSessionId()) +
         ", cluster-up flag was=" + wasUp);
+
+    // create the snapshot monitor
+    // TODO should this be config based?
+    // TODO do we really need a full reference to the master or can we pull out
+    // an interface? MasterFileSystem seems to mostly what it needs
+    this.snapshotManager = new SnapshotManager(this, zooKeeper);
+    // register the snapshot done listener
+    this.executorService.registerListener(EventType.C_M_SNAPSHOT_TABLE, snapshotDone);
   }
 
   /**
@@ -560,6 +586,150 @@ Server {
       }
       stopSleeper.sleep();
     }
+  }
+
+  @Override
+  public void snapshot(final SnapshotDescriptor hsd) throws IOException {
+    Path snapshotDir = SnapshotDescriptor.getCompletedSnapshotDir(hsd, this.getMasterFileSystem()
+        .getRootDir());
+
+    // check to see if the snapshot already exists
+    if (this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
+      throw new SnapshotExistsException("Snapshot " + hsd.getSnapshotNameAsString()
+          + " already exists.");
+    }
+
+    // then check to see if its already in progress
+    Path workingDir = SnapshotDescriptor.getWorkingSnapshotDir(hsd, this.getMasterFileSystem()
+        .getRootDir());
+    if (this.getMasterFileSystem().getFileSystem().exists(workingDir)) {
+      throw new SnapshotExistsException("Snapshot " + hsd.getSnapshotNameAsString()
+          + " already in progress.");
+    }
+
+    // set the creation time if there isn't one already
+    if (hsd.getCreationTime() == SnapshotDescriptor.NO_SNAPSHOT_START_TIME_SPECIFIED) {
+      long time = EnvironmentEdgeManager.currentTimeMillis();
+      if (hsd.getType().equals(SnapshotDescriptor.Type.Timestamp)) {
+        time += conf.getLong(SnapshotDescriptor.TIMESTAMP_SNAPSHOT_SPLIT_POINT_ADDITION,
+          SnapshotDescriptor.DEFAULT_TIMESTAMP_SNAPSHOT_SPLIT_IN_FUTURE);
+      }
+      hsd.setCreationTime(time);
+    }
+
+    // write down the snapshot info in the working directory
+    if (!this.getMasterFileSystem().getFileSystem().mkdirs(workingDir)) {
+      throw new IOException("Could not create snapshot directory: " + workingDir);
+    }
+    SnapshotDescriptor.write(hsd, workingDir, this.getMasterFileSystem().getFileSystem());
+
+    // reset the state of snapshot completion (only 1 snapshot at a time, right now)
+    isSnapshotDone.set(false);
+    try {
+      try {
+        SnapshotSentinel sentinel;
+        // if the table is online, then have the RS handle the snapshots
+        if (this.assignmentManager.getZKTable().isEnabledTable(hsd.getTableNameAsString())) {
+          sentinel = snapshotManager.startManagingOnlineSnapshot(hsd);
+        }
+        // For disabled table, snapshot is created by the master
+        else if (this.assignmentManager.getZKTable().isDisabledTable(hsd.getTableNameAsString())) {
+          LOG.debug("Table is disabled, running snapshot entirely on master.");
+          sentinel = snapshotManager.startManagingOfflineSnapshot(hsd, isSnapshotDone,
+            executorService, this, this);
+        } else {
+          throw new TablePartiallyOpenException(hsd.getTableNameAsString() + " isn't fully open.");
+        }
+
+        // wait for the snapshot to finish (blocking)
+        sentinel.run();
+
+      } catch (IOException e) {
+        // if we fail to create the snapshot, just abort it
+        LOG.error("Failed to create snapshot:" + e);
+        snapshotManager.abort(hsd);
+        snapshotDir = null;
+        // propagate the error back to the client
+        throw e;
+      }
+      // finally move the snapshot to the completed location and cleanup
+      try {
+        snapshotManager.completeSnapshot(snapshotDir, workingDir, this.getMasterFileSystem()
+            .getFileSystem());
+      } catch (IOException e) {
+        throw new SnapshotCreationException(
+            "Could not complete snapshot because directory structure was compromised "
+                + "- expected snapshot to be build in a working directory (" + workingDir
+                + "), but it wasn't! Instead, it was build in:" + snapshotDir, e);
+      }
+    } finally {
+      this.snapshotManager.cleanupSnapshot(workingDir, this.getMasterFileSystem().getFileSystem());
+    }
+    LOG.debug("Completed taking snapshot: " + hsd);
+  }
+
+  /**
+   * List the currently available/stored snapshots. Any in-progress snapshots are ignored
+   */
+  public SnapshotDescriptor[] listSnapshots() throws IOException {
+    List<SnapshotDescriptor> snapshotList = new ArrayList<SnapshotDescriptor>();
+    // first create the snapshot description and check to see if it exists
+    Path snapshotDir = SnapshotDescriptor.getSnapshotDir(this.getMasterFileSystem().getRootDir());
+    // check to see if the snapshot already exists
+    if (!this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
+      return new SnapshotDescriptor[0];
+    }
+    FileSystem fs = this.getMasterFileSystem().getFileSystem();
+
+    FileStatus[] snapshots = fs.listStatus(snapshotDir, new FSUtils.DirFilter(fs));
+    for (FileStatus snapshot : snapshots) {
+      Path info = new Path(snapshot.getPath(), SnapshotDescriptor.SNAPSHOTINFO_FILE);
+      // skip all the unfinished snapshots
+      if (!fs.exists(info)) continue;
+      FSDataInputStream in = null;
+      try {
+        in = fs.open(info);
+        SnapshotDescriptor hsd = new SnapshotDescriptor();
+        hsd.readFields(in);
+        snapshotList.add(hsd);
+      } catch (IOException e) {
+        LOG.warn("Crashed snapshot " + snapshot.getPath().getName());
+      } finally {
+        if (in != null) {
+          in.close();
+        }
+      }
+    }
+    return snapshotList.toArray(new SnapshotDescriptor[snapshotList.size()]);
+  }
+
+  /**
+   * Delete the named snapshot, it if exists
+   */
+  @Override
+  public void deleteSnapshot(final byte[] snapshotName) throws IOException {
+    LOG.debug("Deleting snapshot: " + Bytes.toString(snapshotName));
+    // first create the snapshot description and check to see if it exists
+    Path snapshotDir = SnapshotDescriptor.getCompletedSnapshotDir(snapshotName, this
+        .getMasterFileSystem().getRootDir());
+
+    // check to see if the snapshot already exists
+    if (!this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
+      LOG.warn("Attempted to delete snapshot:"
+          + SnapshotDescriptor.convertNameToString(snapshotName) + ", but doesn't exist.");
+      return;
+    }
+
+    // delete the existing snapshot
+    this.getMasterFileSystem().getFileSystem().delete(snapshotDir, true);
+  }
+
+  /**
+   * Exposed for TESTING!
+   * @return the underlying snapshot manager
+   */
+  public SnapshotManager getSnapshotManager() {
+    return this.snapshotManager;
   }
 
   /**
