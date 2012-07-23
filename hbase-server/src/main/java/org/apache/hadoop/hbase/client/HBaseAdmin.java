@@ -96,6 +96,9 @@ import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.StopMasterRe
 import org.apache.hadoop.hbase.client.MasterAdminKeepAliveConnection;
 import org.apache.hadoop.hbase.client.MasterMonitorKeepAliveConnection;
 import org.apache.hadoop.hbase.regionserver.wal.FailedLogCloseException;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor.SnapshotBuilder;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor.Type;
 import org.apache.hadoop.hbase.util.Addressing;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
@@ -1997,6 +2000,102 @@ public class HBaseAdmin implements Abortable, Closeable {
       cleanupCatalogTracker(ct);
     }
     return state;
+  }
+
+  /**
+   * Create a snapshot for the given table.
+   * @param snapshotName name of the snapshot to be created
+   * @param tableName name of the table for which snapshot is created
+   * @throws IOException if a remote or network exception occurs
+   */
+  public void snapshot(final byte[] snapshotName, final byte[] tableName) throws IOException {
+    snapshot(snapshotName, tableName, Type.Timestamp);
+  }
+
+  /**
+   * Create a globally-consistent snapshot of the the given table.
+   * <p>
+   * Generally, you should <b>not</b> use this, but instead just use a regular
+   * {@link #snapshot(byte[], byte[])} as this snapshot will <b>block all writes
+   * to the table</b> while taking the snapshot. This occurs so a single stable
+   * state can be achieved across all servers hosting the table - this is beyond
+   * the consistency constraints placed on an HBase table. This type of snapshot
+   * has two main implications:
+   * <ul>
+   * <li>all writes to the table will block while taking the snapshot</li>
+   * <li>the probability of success decreases with increasing cluster size and
+   * is not recommended for clusters much greater than 500 nodes</li>
+   * </ul>
+   * Together, the two above considerations mean to get a snapshot with any real
+   * load on your system, you will likely have multiple attempts and will suffer
+   * notable performance degradation, for a large cluster.
+   * <p>
+   * This can be suitable for a smaller cluster, but comes with the above
+   * caveats - user beware (you should really consider if you can get by with
+   * just using timestamp-consistent snapshots via
+   * {@link #snapshot(byte[], byte[])}).
+   * @param snapshotName
+   * @param tableName
+   * @throws IOException
+   */
+  public void globalSnapshot(final byte[] snapshotName, final byte[] tableName) throws IOException {
+    snapshot(snapshotName, tableName, Type.Global);
+  }
+
+  /**
+   * Take a snapshot of the given type
+   * @param snapshotName Name fo the snapshot to take
+   * @param tableName name of the table to snapshot
+   * @param type type of snapshot to take
+   * @throws IOException if the snapshot fails
+   */
+  private void snapshot(final byte[] snapshotName, final byte[] tableName,
+      SnapshotDescriptor.Type type) throws IOException {
+    // check to make sure we are looking at a valid table
+    final SnapshotDescriptor.SnapshotBuilder builder = new SnapshotDescriptor.SnapshotBuilder(
+        tableName,
+        snapshotName);
+    builder.setType(type);
+    // run the snapshot on the master
+    execute(new MasterAdminCallable<Void>() {
+      @Override
+      public Void call() throws IOException {
+        masterAdmin.snapshot(builder.build());
+        return null;
+      }
+    });
+  }
+
+  /**
+   * List existing snapshots.
+   * @return a list of snapshot descriptor for existing snapshots
+   * @throws IOException
+   */
+  public SnapshotDescriptor[] listSnapshots() throws IOException {
+    return execute(new MasterAdminCallable<SnapshotDescriptor[]>() {
+      @Override
+      public SnapshotDescriptor[] call() throws IOException {
+        return masterAdmin.listSnapshots();
+      }
+    });
+  }
+
+   /**
+   * Delete an existing snapshot.
+   * @param snapshotName name of the snapshot
+   * @throws IOException if a remote or network exception occurs
+   */
+  public void deleteSnapshot(final byte[] snapshotName) throws IOException {
+    // make sure the snapshot is possibly valid
+    HTableDescriptor.isLegalTableName(snapshotName);
+    // do the delete
+    execute(new MasterAdminCallable<Void>() {
+      @Override
+      public Void call() throws IOException {
+        masterAdmin.deleteSnapshot(snapshotName);
+        return null;
+      }
+    });
   }
 
   /**
