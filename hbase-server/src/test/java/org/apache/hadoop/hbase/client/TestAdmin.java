@@ -40,10 +40,10 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.hbase.executor.EventHandler;
 import org.apache.hadoop.hbase.executor.EventHandler.EventType;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.master.AssignmentManager;
+import org.apache.hadoop.hbase.master.DoneListener;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
@@ -498,32 +498,6 @@ public class TestAdmin {
       }
     }
     executor.unregisterListener(EventType.C_M_MODIFY_TABLE);
-  }
-
-  /**
-   * Listens for when an event is done in Master.
-   */
-  static class DoneListener implements EventHandler.EventHandlerListener {
-    private final AtomicBoolean done;
-
-    DoneListener(final AtomicBoolean done) {
-      super();
-      this.done = done;
-    }
-
-    @Override
-    public void afterProcess(EventHandler event) {
-      this.done.set(true);
-      synchronized (this.done) {
-        // Wake anyone waiting on this value to change.
-        this.done.notifyAll();
-      }
-    }
-
-    @Override
-    public void beforeProcess(EventHandler event) {
-      // continue
-    }
   }
 
   protected void verifyRoundRobinDistribution(HTable ht, int expectedRegions) throws IOException {
