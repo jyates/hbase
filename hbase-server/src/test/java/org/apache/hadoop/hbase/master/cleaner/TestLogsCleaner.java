@@ -19,7 +19,6 @@ package org.apache.hadoop.hbase.master.cleaner;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.IOException;
 import java.net.URLEncoder;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -28,7 +27,6 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.master.cleaner.LogCleaner;
 import org.apache.hadoop.hbase.replication.ReplicationZookeeper;
 import org.apache.hadoop.hbase.replication.regionserver.Replication;
@@ -37,11 +35,13 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.mockito.Mockito;
 
 @Category(MediumTests.class)
 public class TestLogsCleaner {
 
   private final static HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
+  private static ZooKeeperWatcher zkw;
 
   /**
    * @throws java.lang.Exception
@@ -49,6 +49,7 @@ public class TestLogsCleaner {
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     TEST_UTIL.startMiniZKCluster();
+    zkw = new ZooKeeperWatcher(TEST_UTIL.getConfiguration(), "dummy server", null);
   }
 
   /**
@@ -67,7 +68,12 @@ public class TestLogsCleaner {
     conf.setLong("hbase.master.logcleaner.ttl", ttl);
     conf.setBoolean(HConstants.REPLICATION_ENABLE_KEY, true);
     Replication.decorateMasterConfiguration(conf);
-    Server server = new DummyServer();
+    // mock out the server
+    Server server = Mockito.mock(Server.class);
+    Mockito.when(server.getZooKeeper()).thenReturn(zkw);
+    Mockito.when(server.getServerName()).thenReturn(new ServerName("regionserver,60020,000000"));
+    Mockito.when(server.getConfiguration()).thenReturn(conf);
+
     ReplicationZookeeper zkHelper =
         new ReplicationZookeeper(server, new AtomicBoolean(true));
 
@@ -126,50 +132,6 @@ public class TestLogsCleaner {
 
     for (FileStatus file : fs.listStatus(oldLogDir)) {
       System.out.println("Kept log files: " + file.getPath().getName());
-    }
-  }
-
-  static class DummyServer implements Server {
-
-    @Override
-    public Configuration getConfiguration() {
-      return TEST_UTIL.getConfiguration();
-    }
-
-    @Override
-    public ZooKeeperWatcher getZooKeeper() {
-      try {
-        return new ZooKeeperWatcher(getConfiguration(), "dummy server", this);
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-      return null;
-    }
-
-    @Override
-    public CatalogTracker getCatalogTracker() {
-      return null;
-    }
-
-    @Override
-    public ServerName getServerName() {
-      return new ServerName("regionserver,60020,000000");
-    }
-
-    @Override
-    public void abort(String why, Throwable e) {}
-
-    @Override
-    public boolean isAborted() {
-      return false;
-    }
-
-    @Override
-    public void stop(String why) {}
-
-    @Override
-    public boolean isStopped() {
-      return false;
     }
   }
 

@@ -19,8 +19,6 @@ package org.apache.hadoop.hbase.master.cleaner;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.IOException;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -29,16 +27,23 @@ import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.SmallTests;
-import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.mockito.Mockito;
 
 @Category(SmallTests.class)
 public class TestHFileCleaner {
 
   private final static HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
+  private static ZooKeeperWatcher zkw;
+
+  @BeforeClass
+  public static void setupTests() throws Exception {
+    zkw = new ZooKeeperWatcher(TEST_UTIL.getConfiguration(), "dummy server", null);
+  }
 
   @Test
   public void testHFileCleaning() throws Exception{
@@ -47,7 +52,13 @@ public class TestHFileCleaner {
     // set TTL
     long ttl = 2000;
     conf.setLong(TimeToLiveHFileCleaner.TTL_CONF_KEY, ttl);
-    Server server = new DummyServer();
+
+    // mock out the server
+    Server server = Mockito.mock(Server.class);
+    Mockito.when(server.getZooKeeper()).thenReturn(zkw);
+    Mockito.when(server.getServerName()).thenReturn(new ServerName("regionserver,60020,000000"));
+    Mockito.when(server.getConfiguration()).thenReturn(conf);
+
     Path archivedHfileDir = new Path(TEST_UTIL.getDataTestDir(),
         HFileArchiveUtil.getConfiguredArchiveDirName(conf));
     FileSystem fs = FileSystem.get(conf);
@@ -92,50 +103,6 @@ public class TestHFileCleaner {
     }
 
     cleaner.interrupt();
-  }
-
-  static class DummyServer implements Server {
-
-    @Override
-    public Configuration getConfiguration() {
-      return TEST_UTIL.getConfiguration();
-    }
-
-    @Override
-    public ZooKeeperWatcher getZooKeeper() {
-      try {
-        return new ZooKeeperWatcher(getConfiguration(), "dummy server", this);
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-      return null;
-    }
-
-    @Override
-    public CatalogTracker getCatalogTracker() {
-      return null;
-    }
-
-    @Override
-    public ServerName getServerName() {
-      return new ServerName("regionserver,60020,000000");
-    }
-
-    @Override
-    public void abort(String why, Throwable e) {}
-
-    @Override
-    public boolean isAborted() {
-      return false;
-    }
-
-    @Override
-    public void stop(String why) {}
-
-    @Override
-    public boolean isStopped() {
-      return false;
-    }
   }
 
   @org.junit.Rule
