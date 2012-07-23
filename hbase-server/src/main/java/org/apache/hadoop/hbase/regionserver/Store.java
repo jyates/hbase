@@ -374,8 +374,16 @@ public class Store extends SchemaConfigured implements HStore {
   }
 
   /**
-   * Return the directory in which this store stores its
-   * StoreFiles
+   * @param parentRegionDirectory directory for the parent region
+   * @param family family name of this store
+   * @return Path to the family/Store home directory
+   */
+  public static Path getStoreHomedir(final Path parentRegionDirectory, final byte[] family) {
+    return new Path(parentRegionDirectory, new Path(Bytes.toString(family)));
+  }
+
+  /**
+   * Return the directory in which this store stores its StoreFiles
    */
   Path getHomedir() {
     return homedir;

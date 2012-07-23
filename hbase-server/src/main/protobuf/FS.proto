@@ -31,13 +31,15 @@ message HBaseVersionFileContent {
 }
 
 /**
- * Reference file content used when we split an hfile under a region.
+ * Reference file content used when we split an hfile under a region or reference
+ * a file in a snapshot
  */
 message Reference {
   required bytes splitkey = 1;
   enum Range {
     TOP = 0;
     BOTTOM = 1;
+    WHOLE = 2;
   }
   required Range range = 2;
 }
