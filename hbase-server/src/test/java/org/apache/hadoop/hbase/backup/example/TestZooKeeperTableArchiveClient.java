@@ -38,6 +38,7 @@ import org.apache.hadoop.hbase.master.cleaner.TimeToLiveHFileCleaner;
 import org.apache.hadoop.hbase.regionserver.CheckedArchivingHFileCleaner;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
+import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
@@ -176,7 +177,7 @@ public class TestZooKeeperTableArchiveClient {
     loadAndCompact(region);
 
     // check that we actually have some store files that were archived
-    Store store = region.getStore(TEST_FAM);
+    HStore store = region.getStore(TEST_FAM);
     Path storeArchiveDir = HFileArchiveTestingUtil.getStoreArchivePath(UTIL.getConfiguration(),
       region, store);
 
@@ -324,7 +325,7 @@ public class TestZooKeeperTableArchiveClient {
     loadAndCompact(region);
 
     // check that we actually have some store files that were archived
-    Store store = region.getStore(TEST_FAM);
+    HStore store = region.getStore(TEST_FAM);
     Path storeArchiveDir = HFileArchiveTestingUtil.getStoreArchivePath(UTIL.getConfiguration(),
       region, store);
 
@@ -359,7 +360,7 @@ public class TestZooKeeperTableArchiveClient {
    * Compact all the store files in a given region.
    */
   private void compactRegion(HRegion region, byte[] family) throws IOException {
-    Store store = region.getStores().get(TEST_FAM);
+    HStore store = region.getStores().get(TEST_FAM);
     store.compactRecentForTesting(store.getStorefiles().size());
   }
 }

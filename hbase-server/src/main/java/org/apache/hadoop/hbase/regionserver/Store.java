@@ -107,7 +107,7 @@ import com.google.common.collect.Lists;
  * not be called directly but by an HRegion manager.
  */
 @InterfaceAudience.Private
-public class Store extends SchemaConfigured implements HeapSize {
+public class Store extends SchemaConfigured implements HStore {
   static final Log LOG = LogFactory.getLog(Store.class);
 
   protected final MemStore memstore;
@@ -366,7 +366,7 @@ public class Store extends SchemaConfigured implements HeapSize {
     this.dataBlockEncoder = blockEncoder;
   }
 
-  FileStatus [] getStoreFiles() throws IOException {
+  public FileStatus[] getStoreFiles() throws IOException {
     return FSUtils.listStatus(this.fs, this.homedir, null);
   }
 
@@ -446,7 +446,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    * @param kv
    * @return memstore size delta
    */
-  protected long add(final KeyValue kv) {
+  @Override
+  public long add(final KeyValue kv) {
     lock.readLock().lock();
     try {
       return this.memstore.add(kv);
@@ -477,7 +478,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    *
    * @param kv
    */
-  protected void rollback(final KeyValue kv) {
+  @Override
+  public void rollback(final KeyValue kv) {
     lock.readLock().lock();
     try {
       this.memstore.rollback(kv);
@@ -489,6 +491,7 @@ public class Store extends SchemaConfigured implements HeapSize {
   /**
    * @return All store files.
    */
+  @Override
   public List<StoreFile> getStorefiles() {
     return this.storefiles;
   }
@@ -497,7 +500,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    * This throws a WrongRegionException if the HFile does not fit in this
    * region, or an InvalidHFileException if the HFile is not valid.
    */
-  void assertBulkLoadHFileOk(Path srcPath) throws IOException {
+  @Override
+  public void assertBulkLoadHFileOk(Path srcPath) throws IOException {
     HFile.Reader reader  = null;
     try {
       LOG.info("Validating hfile at " + srcPath + " for inclusion in "
@@ -562,7 +566,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    * ranges of values in the HFile fit within the stores assigned region.
    * (assertBulkLoadHFileOk checks this)
    */
-  void bulkLoadHFile(String srcPathStr) throws IOException {
+  @Override
+  public void bulkLoadHFile(String srcPathStr) throws IOException {
     Path srcPath = new Path(srcPathStr);
 
     // Copy the file if it's on another filesystem
@@ -628,7 +633,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    *
    * @throws IOException
    */
-  ImmutableList<StoreFile> close() throws IOException {
+  @Override
+  public ImmutableList<StoreFile> close() throws IOException {
     this.lock.writeLock().lock();
     try {
       ImmutableList<StoreFile> result = storefiles;
@@ -675,8 +681,9 @@ public class Store extends SchemaConfigured implements HeapSize {
   }
 
   /**
-   * Snapshot this stores memstore.  Call before running
-   * {@link #flushCache(long, SortedSet<KeyValue>)} so it has some work to do.
+   * Snapshot this stores memstore. Call before running
+   * {@link #flushCache(long, SortedSet, TimeRangeTracker, AtomicLong, MonitoredTask)} so it has
+   * some work to do.
    */
   void snapshot() {
     this.memstore.snapshot();
@@ -1103,7 +1110,8 @@ public class Store extends SchemaConfigured implements HeapSize {
     }
   }
 
-  boolean hasReferences() {
+  @Override
+  public boolean hasReferences() {
     return hasReferences(this.storefiles);
   }
 
@@ -1145,10 +1153,11 @@ public class Store extends SchemaConfigured implements HeapSize {
     return this.compactor.getProgress();
   }
 
-  /*
+  /**
    * @return True if we should run a major compaction.
    */
-  boolean isMajorCompaction() throws IOException {
+  @Override
+  public boolean isMajorCompaction() throws IOException {
     for (StoreFile sf : this.storefiles) {
       if (sf.getReader() == null) {
         LOG.debug("StoreFile " + sf + " has null Reader");
@@ -1687,7 +1696,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    * @return Found keyvalue or null if none found.
    * @throws IOException
    */
-  KeyValue getRowKeyAtOrBefore(final byte[] row) throws IOException {
+  @Override
+  public KeyValue getRowKeyAtOrBefore(final byte[] row) throws IOException {
     // If minVersions is set, we will not ignore expired KVs.
     // As we're only looking for the latest matches, that should be OK.
     // With minVersions > 0 we guarantee that any KV that has any version
@@ -1959,21 +1969,24 @@ public class Store extends SchemaConfigured implements HeapSize {
   /**
    * @return Count of store files
    */
-  int getStorefilesCount() {
+  @Override
+  public int getStorefilesCount() {
     return this.storefiles.size();
   }
 
   /**
    * @return The size of the store files, in bytes, uncompressed.
    */
-  long getStoreSizeUncompressed() {
+  @Override
+  public long getStoreSizeUncompressed() {
     return this.totalUncompressedBytes;
   }
 
   /**
    * @return The size of the store files, in bytes.
    */
-  long getStorefilesSize() {
+  @Override
+  public long getStorefilesSize() {
     long size = 0;
     for (StoreFile s: storefiles) {
       StoreFile.Reader r = s.getReader();
@@ -1989,7 +2002,8 @@ public class Store extends SchemaConfigured implements HeapSize {
   /**
    * @return The size of the store file indexes, in bytes.
    */
-  long getStorefilesIndexSize() {
+  @Override
+  public long getStorefilesIndexSize() {
     long size = 0;
     for (StoreFile s: storefiles) {
       StoreFile.Reader r = s.getReader();
@@ -2009,7 +2023,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    *
    * @return the total size of block indexes in the store
    */
-  long getTotalStaticIndexSize() {
+  @Override
+  public long getTotalStaticIndexSize() {
     long size = 0;
     for (StoreFile s : storefiles) {
       size += s.getReader().getUncompressedDataIndexSize();
@@ -2024,7 +2039,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    *
    * @return the total size of all Bloom filters in the store
    */
-  long getTotalStaticBloomSize() {
+  @Override
+  public long getTotalStaticBloomSize() {
     long size = 0;
     for (StoreFile s : storefiles) {
       StoreFile.Reader r = s.getReader();
@@ -2036,7 +2052,8 @@ public class Store extends SchemaConfigured implements HeapSize {
   /**
    * @return The size of this store's memstore, in bytes
    */
-  long getMemStoreSize() {
+  @Override
+  public long getMemStoreSize() {
     return this.memstore.heapSize();
   }
 
@@ -2057,7 +2074,8 @@ public class Store extends SchemaConfigured implements HeapSize {
     }
   }
 
-  boolean throttleCompaction(long compactionSize) {
+  @Override
+  public boolean throttleCompaction(long compactionSize) {
     // see HBASE-5867 for discussion on the default
     long throttlePoint = conf.getLong(
         "hbase.regionserver.thread.compaction.throttle",
@@ -2065,7 +2083,8 @@ public class Store extends SchemaConfigured implements HeapSize {
     return compactionSize > throttlePoint;
   }
 
-  HRegion getHRegion() {
+  @Override
+  public HRegion getHRegion() {
     return this.region;
   }
 
@@ -2119,8 +2138,8 @@ public class Store extends SchemaConfigured implements HeapSize {
    * @return memstore size delta
    * @throws IOException
    */
-  public long upsert(List<KeyValue> kvs)
-      throws IOException {
+  @Override
+  public long upsert(List<KeyValue> kvs) throws IOException {
     this.lock.readLock().lock();
     try {
       // TODO: Make this operation atomic w/ MVCC
