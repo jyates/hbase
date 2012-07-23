@@ -895,4 +895,66 @@
     default log cleaners in the list as they will be overwritten in hbase-site.xml.
     </description>
   </property>
+  <property>
+    <name>zookeeper.zknode.snapshot</name>
+    <value>snapshot</value>
+    <description>ZNode under which all the snapshot info should be stored in ZooKeeper, under the parent node</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.master.wakeFrequency</name>
+    <value>500</value>
+    <description>Frequency, in ms, the master should use to check for snapshot errors
+    while waiting for completion.</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.region.wakefrequency</name>
+    <value>500</value>
+    <description>Frequency, in ms, the regionserver request handler should
+    use to check for snapshot errors while waiting for completion.</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.region.pool.threads</name>
+    <value>10</value>
+    <description>Parallelization factor when starting snapshots on region servers.
+    Should be close to the number of regions per server. Will never be less than 2,
+    even if set in the configuration to ensure the snapshot can be completed.</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.region.pool.keepalive</name>
+    <value>60</value>
+    <description>Max time, in seconds, to keep threads in snapshot request pool waiting before
+    they are killed. This is an advanced configuration parameter, for optimizing the speed
+    of taking snapshots.</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.global.master.timeout</name>
+    <value>50000</value>
+    <description>Amount of time the master should wait for a globally-consistent snapshot
+    to complete, in ms, before aborting the snapshot</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.global.region.timeout</name>
+    <value>50000</value>
+    <description>Amount of time a regionserver should wait for a globally-consistent snapshot
+    to complete, in ms, before aborting the snapshot</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.timestamp.master.timeout</name>
+    <value>50000</value>
+    <description>Amount of time the master should wait for a timestamp-consistent snapshot
+    to complete, in ms, before aborting the snapshot</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.timestamp.region.timeout</name>
+    <value>50000</value>
+    <description>Amount of time a regionserver should wait for a timestamp-consistent snapshot
+    to complete, in ms, before aborting the snapshot</description>
+  </property>
+  <property>
+    <name>hbase.snapshot.timestamp.master.splittime</name>
+    <value>2000</value>
+    <description>Amount of time the in the future a timestamp snapshot should be taken (ms). All writes
+    (specifically, all writes with a timestamp less than start+splittime) until start+splittime will
+    be included in the snapshot.</description>
+  </property>
 </configuration>

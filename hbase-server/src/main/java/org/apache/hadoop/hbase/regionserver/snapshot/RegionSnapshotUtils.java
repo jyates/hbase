@@ -22,6 +22,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -36,7 +38,9 @@ import org.apache.hadoop.hbase.io.Reference;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptor;
+import org.apache.hadoop.hbase.snapshot.monitor.SnapshotErrorMonitor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 
@@ -157,5 +161,26 @@ public class RegionSnapshotUtils {
       files.addAll(Arrays.asList(hfiles));
     }
     return files;
+  }
+
+  /**
+   * Wait for latch to count to zero, ignoring any spurious wake-ups, but waking periodically to
+   * check for errors
+   * @param latch latch to wait on
+   * @throws SnapshotCreationException if the snapshot was failed while waiting
+   */
+  public static void waitForLatch(CountDownLatch latch, String latchType, long wakeFrequency,
+      SnapshotErrorMonitor monitor)
+      throws SnapshotCreationException {
+    do {
+      // first check for error, and if none is found then wait
+      monitor.failOnError();
+      try {
+        LOG.debug("Waiting for snapshot " + latchType + " latch.");
+        latch.await(wakeFrequency, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException e) {
+        LOG.debug("Wait for latch interrupted, done:" + (latch.getCount() == 0));
+      }
+    } while (latch.getCount() > 0);
   }
 }

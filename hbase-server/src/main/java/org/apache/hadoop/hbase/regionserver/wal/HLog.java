@@ -267,6 +267,15 @@ public class HLog implements Syncable {
     }
   }
 
+  private static byte[] START_SNAPSHOT;
+  static {
+    try {
+      START_SNAPSHOT = "HBASE::SNAPSHOT".getBytes(HConstants.UTF8_ENCODING);
+    } catch (UnsupportedEncodingException e) {
+      assert (false);
+    }
+  }
+
   public static class Metric {
     public long min = Long.MAX_VALUE;
     public long max = 0;
@@ -1644,6 +1653,14 @@ public class HLog implements Syncable {
     this.cacheFlushLock.unlock();
   }
 
+  public static WALEdit getSnapshotWALEdit() {
+    KeyValue kv = new KeyValue(METAROW, METAFAMILY, null, System.currentTimeMillis(),
+        START_SNAPSHOT);
+    WALEdit e = new WALEdit();
+    e.add(kv);
+    return e;
+  }
+
   /**
    * @param family
    * @return true if the column is a meta column
@@ -1762,7 +1779,7 @@ public class HLog implements Syncable {
    * 
    * @return dir
    */
-  protected Path getDir() {
+  public Path getDir() {
     return dir;
   }
   

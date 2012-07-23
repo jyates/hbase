@@ -102,6 +102,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
   public String clusterIdZNode;
   // znode used for log splitting work assignment
   public String splitLogZNode;
+  // znode of the root directory for snapshot information
+  public String snapshotZNode;
 
   // Certain ZooKeeper nodes need to be world-readable
   public static final ArrayList<ACL> CREATOR_ALL_AND_WORLD_READABLE =
@@ -165,6 +167,7 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
       ZKUtil.createAndFailSilent(this, tableZNode);
       ZKUtil.createAndFailSilent(this, splitLogZNode);
       ZKUtil.createAndFailSilent(this, backupMasterAddressesZNode);
+      ZKUtil.createAndFailSilent(this, snapshotZNode);
     } catch (KeeperException e) {
       throw new ZooKeeperConnectionException(
           prefix("Unexpected KeeperException creating base node"), e);
@@ -212,6 +215,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
         conf.get("zookeeper.znode.clusterId", "hbaseid"));
     splitLogZNode = ZKUtil.joinZNode(baseZNode,
         conf.get("zookeeper.znode.splitlog", HConstants.SPLIT_LOGDIR_NAME));
+    snapshotZNode = ZKUtil.joinZNode(baseZNode,
+        conf.get("zookeeper.znode.snapshot", "snapshot"));
   }
 
   /**
