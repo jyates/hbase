@@ -30,6 +30,10 @@ import org.apache.hadoop.hbase.server.errorhandling.OperationAttemptTimer;
 @SuppressWarnings("serial")
 public class OperationAttemptTimeoutException extends Exception {
 
+  private final long start;
+  private final long end;
+  private final long allowed;
+
   /**
    * Exception indicating that an operation attempt has timed out
    * @param start time the operation started (ms since epoch)
@@ -39,5 +43,20 @@ public class OperationAttemptTimeoutException extends Exception {
   public OperationAttemptTimeoutException(long start, long end, long allowed) {
     super("Timeout elapsed! Start:" + start + ", End:" + end + ", diff:" + (end - start) + ", max:"
         + allowed + " ms");
+    this.start = start;
+    this.end = end;
+    this.allowed = allowed;
+  }
+
+  public long getStart() {
+    return start;
+  }
+
+  public long getEnd() {
+    return end;
+  }
+
+  public long getMaxAllowedOperationTime() {
+    return allowed;
   }
 }
