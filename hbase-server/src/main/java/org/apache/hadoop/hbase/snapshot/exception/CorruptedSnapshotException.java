@@ -15,31 +15,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.hadoop.hbase.snapshot.exception;
 
-// This file contains protocol buffers that are written into the filesystem
-
-option java_package = "org.apache.hadoop.hbase.protobuf.generated";
-option java_outer_classname = "FSProtos";
-option java_generate_equals_and_hash = true;
-option optimize_for = SPEED;
 
 /**
- * The ${HBASE_ROOTDIR}/hbase.version file content
+ * Exception thrown when the found snapshot info from the filesystem is not valid
  */
-message HBaseVersionFileContent {
-  required string version = 1;
-}
+@SuppressWarnings("serial")
+public class CorruptedSnapshotException extends HBaseSnapshotException {
 
-/**
- * Reference file content used when we split an hfile under a region.
- */
-message Reference {
-  required bytes splitkey = 1;
-  enum Range {
-    TOP = 0;
-    BOTTOM = 1;
-    WHOLE = 2;
+  /**
+   * @param msg message describing the exception
+   */
+  public CorruptedSnapshotException(String msg) {
+    super(msg);
   }
-  required Range range = 2;
-}
 
+  /**
+   * @param message message describing the exception
+   * @param e cause
+   */
+  public CorruptedSnapshotException(String message, Exception e) {
+    super(message, e);
+  }
+
+}

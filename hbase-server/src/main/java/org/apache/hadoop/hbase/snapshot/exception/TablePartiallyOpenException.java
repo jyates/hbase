@@ -15,31 +15,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.hadoop.hbase.snapshot.exception;
 
-// This file contains protocol buffers that are written into the filesystem
+import java.io.IOException;
 
-option java_package = "org.apache.hadoop.hbase.protobuf.generated";
-option java_outer_classname = "FSProtos";
-option java_generate_equals_and_hash = true;
-option optimize_for = SPEED;
+import org.apache.hadoop.hbase.util.Bytes;
 
 /**
- * The ${HBASE_ROOTDIR}/hbase.version file content
+ * Thrown if a table should be online/offline but is partial open
  */
-message HBaseVersionFileContent {
-  required string version = 1;
-}
+public class TablePartiallyOpenException extends IOException {
+  private static final long serialVersionUID = 3571982660065058361L;
 
-/**
- * Reference file content used when we split an hfile under a region.
- */
-message Reference {
-  required bytes splitkey = 1;
-  enum Range {
-    TOP = 0;
-    BOTTOM = 1;
-    WHOLE = 2;
+  public TablePartiallyOpenException() {
+    super();
   }
-  required Range range = 2;
-}
 
+  /**
+   * @param s message
+   */
+  public TablePartiallyOpenException(String s) {
+    super(s);
+  }
+
+  /**
+   * @param tableName Name of table that is partial open
+   */
+  public TablePartiallyOpenException(byte[] tableName) {
+    this(Bytes.toString(tableName));
+  }
+}

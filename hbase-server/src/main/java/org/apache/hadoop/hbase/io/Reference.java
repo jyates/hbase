@@ -1,5 +1,4 @@
 /**
- *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,7 +22,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -57,8 +60,19 @@ import com.google.protobuf.ByteString;
  */
 @InterfaceAudience.Private
 public class Reference implements Writable {
+  private static final Log LOG = LogFactory.getLog(Reference.class);
   private byte [] splitkey;
   private Range region;
+  /**
+   * Regex that will work for straight filenames and for reference names. If reference, then the
+   * regex has more than just one group. Group 1 is this files id. Group 2 the referenced region
+   * name, etc.
+   * <p>
+   * For instance, "fd1e73e8a96c486090c5cec07b4894c4.test", where everything before the "." is the
+   * name of the original reference file and everything after is the table/region name.
+   */
+  public static final Pattern REF_OR_HFILE_NAME_PARSER = Pattern
+      .compile("^([0-9a-f]+)(?:\\.(.+))?$");
 
   /**
    * For split HStoreFiles, it specifies if the file covers the lower half or
@@ -68,7 +82,9 @@ public class Reference implements Writable {
     /** HStoreFile contains upper half of key range */
     top,
     /** HStoreFile contains lower half of key range */
-    bottom
+    bottom,
+    /** Simple reference to an entire file */
+    whole;
   }
 
   /**
@@ -87,12 +103,16 @@ public class Reference implements Writable {
     return new Reference(splitRow, Range.bottom);
   }
 
+  public static Reference createWholeFileReference() {
+    return new Reference(null, Range.whole);
+  }
+
   /**
    * Constructor
    * @param splitRow This is row we are splitting around.
    * @param fr
    */
-  Reference(final byte [] splitRow, final Range fr) {
+  Reference(final byte[] splitRow, final Range fr) {
     this.splitkey = splitRow == null?  null: KeyValue.createFirstOnRow(splitRow).getKey();
     this.region = fr;
   }
@@ -160,6 +180,9 @@ public class Reference implements Writable {
     FSDataOutputStream out = fs.create(p, false);
     try {
       out.write(toByteArray());
+    } catch (IOException e) {
+      LOG.error("Failed to write reference: " + p, e);
+      throw e;
     } finally {
       out.close();
     }
@@ -185,16 +208,17 @@ public class Reference implements Writable {
 
   FSProtos.Reference convert() {
     FSProtos.Reference.Builder builder = FSProtos.Reference.newBuilder();
-    builder.setRange(isTopFileRegion(getFileRegion())?
-      FSProtos.Reference.Range.TOP: FSProtos.Reference.Range.BOTTOM);
-    builder.setSplitkey(ByteString.copyFrom(getSplitKey()));
+    // note that this means ordinal here must match the proto description
+    builder.setRange(FSProtos.Reference.Range.valueOf(getFileRegion().ordinal()));
+    // TODO go back to the original here to check for failure propagation
+    builder.setSplitkey(ByteString.copyFrom(getSplitKey() == null ? new byte[0] : getSplitKey()));
     return builder.build();
   }
 
   static Reference convert(final FSProtos.Reference r) {
     Reference result = new Reference();
     result.splitkey = r.getSplitkey().toByteArray();
-    result.region = r.getRange() == FSProtos.Reference.Range.TOP? Range.top: Range.bottom;
+    result.region = Range.values()[r.getRange().ordinal()];
     return result;
   }
 
@@ -235,5 +259,81 @@ public class Reference implements Writable {
       r.readFields(in);
       return r;
     }
+  }
+
+  /**
+   * @param r Range to check
+   * @return true if the range is Range.ENTIRE
+   */
+  public static boolean isWholeRange(final Range r) {
+    return r.equals(Range.whole);
+  }
+
+  /**
+   * @param p Path to check.
+   * @param m Matcher to use.
+   * @return True if the path has format of a HStoreFile reference.
+   * @throws RuntimeException if the store file name doesn't match
+   */
+  public static boolean isReference(final Path p, final Matcher m) {
+    LOG.debug("Checking to see if " + p + " is a reference.");
+    if (m == null || !m.matches()) {
+      LOG.warn("Failed match of store file name " + p.toString());
+      throw new RuntimeException("Failed match of store file name " + p.toString());
+    }
+    return getMatcherFoundReference(m);
+  }
+
+  /**
+   * @param m Matcher constructed around a file name (should be based on
+   *          {@link #REF_OR_HFILE_NAME_PARSER}).
+   * @return <tt>true</tt> if it meets the basic requirements of a reference file
+   */
+  private static boolean getMatcherFoundReference(Matcher m) {
+    return m.groupCount() > 1 && m.group(2) != null;
+  }
+
+  /**
+   * @param p Path to check.
+   * @return <tt>true</tt> if the path has format of a HStoreFile reference.
+   * @throws RuntimeException if the path is not a reference. Use {@link #checkReference(Path)} if
+   *           you want the non-throwing version.
+   */
+  public static boolean isReference(final Path p) {
+    return !p.getName().startsWith("_")
+        && Reference.isReference(p, Reference.REF_OR_HFILE_NAME_PARSER.matcher(p.getName()));
+  }
+
+  /**
+   * Non-exceptionally check to see if the given path is a reference file. Only fails if the
+   * {@link Path} is null
+   * @param p {@link Path} (can just be the file, rather than the full path) to check
+   * @return <tt>true</tt> if the path has the format of an HStoreFile reference
+   */
+  public static boolean checkReference(final Path p) {
+    try {
+      return isReference(p);
+    } catch (RuntimeException e) {
+      // NOOP - isReference exception is not actually exceptional
+    }
+    return false;
+  }
+
+  /**
+   * Get the original HFile name
+   * @param fileName name of the file to get the original HFile Id. Can either be the name of an
+   *          HFile or a reference to the file
+   * @return Original name of the (possibly referenced) hfile
+   * @throws IllegalArgumentException if the file is not an Hfile or a reference file
+   */
+  public static String getDeferencedHFileName(String fileName) {
+    Matcher m = Reference.REF_OR_HFILE_NAME_PARSER.matcher(fileName);
+    if (!m.matches()) throw new IllegalArgumentException(
+        "Not a valid reference file or hfile name!");
+    // otherwise, it matches
+    // if it is a reference, then get the original file
+    if (getMatcherFoundReference(m)) return m.group(1);
+    // if it matches, but isn't a reference file, then its just an hfile
+    return fileName;
   }
 }

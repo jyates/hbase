@@ -15,15 +15,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.snapshot;
+package org.apache.hadoop.hbase.server;
 
 /**
- * Exception thrown when we get a snapshot error about a snapshot we don't know or recognize.
+ * A simple object that can be finished or not (still working).
  */
-@SuppressWarnings("serial")
-public class UnknownSnapshotException extends SnapshotCreationException {
+public class Finish implements Finishable {
 
-  public UnknownSnapshotException(String msg) {
-    super(msg);
+  private volatile boolean finished;
+
+  @Override
+  public void finish() {
+    this.finished = true;
+  }
+
+  @Override
+  public boolean getFinished() {
+    return this.finished;
   }
 }

@@ -467,10 +467,12 @@ public final class FSProtos {
         implements com.google.protobuf.ProtocolMessageEnum {
       TOP(0, 0),
       BOTTOM(1, 1),
+      WHOLE(2, 2),
       ;
       
       public static final int TOP_VALUE = 0;
       public static final int BOTTOM_VALUE = 1;
+      public static final int WHOLE_VALUE = 2;
       
       
       public final int getNumber() { return value; }
@@ -479,6 +481,7 @@ public final class FSProtos {
         switch (value) {
           case 0: return TOP;
           case 1: return BOTTOM;
+          case 2: return WHOLE;
           default: return null;
         }
       }
@@ -509,7 +512,7 @@ public final class FSProtos {
       }
       
       private static final Range[] VALUES = {
-        TOP, BOTTOM, 
+        TOP, BOTTOM, WHOLE, 
       };
       
       public static Range valueOf(
@@ -978,11 +981,11 @@ public final class FSProtos {
   static {
     java.lang.String[] descriptorData = {
       "\n\010FS.proto\"*\n\027HBaseVersionFileContent\022\017\n" +
-      "\007version\030\001 \002(\t\"\\\n\tReference\022\020\n\010splitkey\030" +
-      "\001 \002(\014\022\037\n\005range\030\002 \002(\0162\020.Reference.Range\"\034" +
-      "\n\005Range\022\007\n\003TOP\020\000\022\n\n\006BOTTOM\020\001B;\n*org.apac" +
-      "he.hadoop.hbase.protobuf.generatedB\010FSPr" +
-      "otosH\001\240\001\001"
+      "\007version\030\001 \002(\t\"g\n\tReference\022\020\n\010splitkey\030" +
+      "\001 \002(\014\022\037\n\005range\030\002 \002(\0162\020.Reference.Range\"\'" +
+      "\n\005Range\022\007\n\003TOP\020\000\022\n\n\006BOTTOM\020\001\022\t\n\005WHOLE\020\002B" +
+      ";\n*org.apache.hadoop.hbase.protobuf.gene" +
+      "ratedB\010FSProtosH\001\240\001\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {

@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.util.UUID;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -260,4 +261,35 @@ public class TestFSUtils {
     }
   }
 
+  @Test
+  public void testTouchFile() throws IOException {
+    HBaseTestingUtility util = new HBaseTestingUtility();
+    FileSystem fs = util.getTestFileSystem();
+    Path testDir = util.getDataTestDir();
+    // try creating a file with no parent
+    String testFileName = "test-touch";
+    Path testFile = new Path(testFileName);
+    checkTouchingFile(fs, testFile);
+
+    // test a file with a parent
+    testFile = new Path(testDir, testFileName);
+    checkTouchingFile(fs, testFile);
+  }
+
+  /**
+   * Touch a new file, check it has a zero length, and then delete the file
+   * @param fs {@link FileSystem} where the file should be created
+   * @param file file to be created
+   * @throws IOException if we can't reach the {@link FileSystem}
+   */
+  private void checkTouchingFile(FileSystem fs, Path file) throws IOException {
+    try {
+      FSUtils.touch(fs, file);
+      assertTrue("Didn't create file:" + file, fs.exists(file));
+      FSDataInputStream is = fs.open(file);
+      assertEquals("Touched file wasn't empty", 0, is.available());
+    } finally {
+      FSUtils.delete(fs, file, true);
+    }
+  }
 }

@@ -11103,20 +11103,23 @@ public final class HBaseProtos {
     
     public enum Type
         implements com.google.protobuf.ProtocolMessageEnum {
-      TIMESTAMP(0, 0),
-      GLOBAL(1, 1),
+      DISABLED(0, 0),
+      TIMESTAMP(1, 1),
+      GLOBAL(2, 2),
       ;
       
-      public static final int TIMESTAMP_VALUE = 0;
-      public static final int GLOBAL_VALUE = 1;
+      public static final int DISABLED_VALUE = 0;
+      public static final int TIMESTAMP_VALUE = 1;
+      public static final int GLOBAL_VALUE = 2;
       
       
       public final int getNumber() { return value; }
       
       public static Type valueOf(int value) {
         switch (value) {
-          case 0: return TIMESTAMP;
-          case 1: return GLOBAL;
+          case 0: return DISABLED;
+          case 1: return TIMESTAMP;
+          case 2: return GLOBAL;
           default: return null;
         }
       }
@@ -11147,7 +11150,7 @@ public final class HBaseProtos {
       }
       
       private static final Type[] VALUES = {
-        TIMESTAMP, GLOBAL, 
+        DISABLED, TIMESTAMP, GLOBAL, 
       };
       
       public static Type valueOf(
@@ -11919,18 +11922,19 @@ public final class HBaseProtos {
       "or\022\014\n\004name\030\001 \002(\t\"-\n\016NameStringPair\022\014\n\004na",
       "me\030\001 \002(\t\022\r\n\005value\030\002 \002(\t\",\n\rNameBytesPair" +
       "\022\014\n\004name\030\001 \002(\t\022\r\n\005value\030\002 \001(\014\"/\n\016BytesBy" +
-      "tesPair\022\r\n\005first\030\001 \002(\014\022\016\n\006second\030\002 \002(\014\"\242" +
+      "tesPair\022\r\n\005first\030\001 \002(\014\022\016\n\006second\030\002 \002(\014\"\260" +
       "\001\n\023SnapshotDescription\022\014\n\004name\030\001 \002(\t\022\r\n\005" +
       "table\030\002 \001(\t\022\027\n\014creationTime\030\003 \001(\003:\0010\0222\n\004" +
       "type\030\004 \001(\0162\031.SnapshotDescription.Type:\tT" +
-      "IMESTAMP\"!\n\004Type\022\r\n\tTIMESTAMP\020\000\022\n\n\006GLOBA" +
-      "L\020\001*r\n\013CompareType\022\010\n\004LESS\020\000\022\021\n\rLESS_OR_" +
-      "EQUAL\020\001\022\t\n\005EQUAL\020\002\022\r\n\tNOT_EQUAL\020\003\022\024\n\020GRE" +
-      "ATER_OR_EQUAL\020\004\022\013\n\007GREATER\020\005\022\t\n\005NO_OP\020\006*",
-      "_\n\007KeyType\022\013\n\007MINIMUM\020\000\022\007\n\003PUT\020\004\022\n\n\006DELE" +
-      "TE\020\010\022\021\n\rDELETE_COLUMN\020\014\022\021\n\rDELETE_FAMILY" +
-      "\020\016\022\014\n\007MAXIMUM\020\377\001B>\n*org.apache.hadoop.hb" +
-      "ase.protobuf.generatedB\013HBaseProtosH\001\240\001\001"
+      "IMESTAMP\"/\n\004Type\022\014\n\010DISABLED\020\000\022\r\n\tTIMEST" +
+      "AMP\020\001\022\n\n\006GLOBAL\020\002*r\n\013CompareType\022\010\n\004LESS" +
+      "\020\000\022\021\n\rLESS_OR_EQUAL\020\001\022\t\n\005EQUAL\020\002\022\r\n\tNOT_" +
+      "EQUAL\020\003\022\024\n\020GREATER_OR_EQUAL\020\004\022\013\n\007GREATER",
+      "\020\005\022\t\n\005NO_OP\020\006*_\n\007KeyType\022\013\n\007MINIMUM\020\000\022\007\n" +
+      "\003PUT\020\004\022\n\n\006DELETE\020\010\022\021\n\rDELETE_COLUMN\020\014\022\021\n" +
+      "\rDELETE_FAMILY\020\016\022\014\n\007MAXIMUM\020\377\001B>\n*org.ap" +
+      "ache.hadoop.hbase.protobuf.generatedB\013HB" +
+      "aseProtosH\001\240\001\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {

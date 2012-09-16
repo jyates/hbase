@@ -15,37 +15,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.snapshot;
-
-import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+package org.apache.hadoop.hbase.snapshot.exception;
 
 /**
- * Thrown when a snapshot could not be created due to a server-side error when taking the snapshot.
+ * Exception thrown when we get a snapshot error about a snapshot we don't know or recognize.
  */
 @SuppressWarnings("serial")
-public class SnapshotCreationException extends HBaseSnapshotException {
+public class UnknownSnapshotException extends SnapshotCreationException {
 
-  public SnapshotCreationException(String msg, SnapshotDescription desc) {
-    super(msg, desc);
-  }
-
-  public SnapshotCreationException(String msg, Throwable cause, SnapshotDescription desc) {
-    super(msg, cause, desc);
-  }
-
-  public SnapshotCreationException(String msg, Throwable cause) {
-    super(msg, cause);
-  }
-
-  public SnapshotCreationException(String msg) {
+  public UnknownSnapshotException(String msg) {
     super(msg);
-  }
-
-  public SnapshotCreationException(Throwable cause, SnapshotDescription desc) {
-    super(cause, desc);
-  }
-
-  public SnapshotCreationException(Throwable cause) {
-    super(cause);
   }
 }

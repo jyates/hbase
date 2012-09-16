@@ -25,18 +25,16 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.InvalidFamilyOperationException;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.MasterCoprocessorHost;
 import org.apache.hadoop.hbase.master.MasterServices;
-import org.apache.hadoop.hbase.util.Bytes;
 
 /**
  * Handles adding a new family to an existing table.
  */
 @InterfaceAudience.Private
-public class TableModifyFamilyHandler extends TableEventHandler {
+public class TableModifyFamilyHandler extends ModifyTableEventHandler {
   private final HColumnDescriptor familyDesc;
 
   public TableModifyFamilyHandler(byte[] tableName,

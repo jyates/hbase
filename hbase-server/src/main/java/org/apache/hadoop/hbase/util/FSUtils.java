@@ -933,18 +933,39 @@ public abstract class FSUtils {
       this.fs = fs;
     }
 
+    @Override
     public boolean accept(Path p) {
+      return checkIsDirectory(fs, p);
+    }
+
+    public static boolean checkIsDirectory(FileSystem fs, Path p) {
       boolean isValid = false;
       try {
         if (HConstants.HBASE_NON_USER_TABLE_DIRS.contains(p.toString())) {
           isValid = false;
         } else {
-            isValid = this.fs.getFileStatus(p).isDir();
+          isValid = fs.getFileStatus(p).isDir();
         }
       } catch (IOException e) {
         e.printStackTrace();
       }
       return isValid;
+    }
+  }
+
+  /**
+   * Filter out paths that are hidden (start with '.') and are not directories.
+   */
+  public static class VisibleDirectory implements PathFilter {
+    private final FileSystem fs;
+
+    public VisibleDirectory(FileSystem fs) {
+      this.fs = fs;
+    }
+
+    @Override
+    public boolean accept(Path file) {
+      return DirFilter.checkIsDirectory(fs, file) && !file.getName().toString().startsWith(".");
     }
   }
 
@@ -1287,19 +1308,6 @@ public abstract class FSUtils {
   }
 
   /**
-   * Log the current state of the filesystem from a certain root directory
-   * @param fs filesystem to investigate
-   * @param root root file/directory to start logging from
-   * @param LOG log to output information
-   * @throws IOException if an unexpected exception occurs
-   */
-  public static void logFileSystemState(final FileSystem fs, final Path root, Log LOG)
-      throws IOException {
-    LOG.debug("Current file system:");
-    logFSTree(LOG, fs, root, "|-");
-  }
-
-  /**
    * Throw an exception if an action is not permitted by a user on a file.
    * 
    * @param ugi
@@ -1336,6 +1344,19 @@ public abstract class FSUtils {
   }
 
   /**
+   * Log the current state of the filesystem from a certain root directory
+   * @param fs filesystem to investigate
+   * @param root root file/directory to start logging from
+   * @param LOG log to output information
+   * @throws IOException if an unexpected exception occurs
+   */
+  public static void logFileSystemState(final FileSystem fs, final Path root, Log LOG)
+      throws IOException {
+    LOG.debug("Current file system:");
+    logFSTree(LOG, fs, root, "|-");
+  }
+
+  /**
    * Recursive helper to log the state of the FS
    * 
    * @see #logFileSystemState(FileSystem, Path, Log)
@@ -1353,5 +1374,21 @@ public abstract class FSUtils {
         LOG.debug(prefix + file.getPath().getName());
       }
     }
+  }
+
+  /**
+   * Create a zero-length file on the {@link FileSystem}.
+   * @param fs Filesystem on which to create the file
+   * @param file full path of the file to create. If {@link Path#getParent()} returns <tt>null</tt>
+   *          the file is just created in the root filesystem directory. If the parent directories
+   *          exist, just creates the file
+   * @return <tt>true</tt> on succcess, <tt>false</tt> if the file cannot be created or already
+   *         exists
+   * @throws IOException if the filesystem throws an exception
+   */
+  public static boolean touch(FileSystem fs, Path file) throws IOException {
+    // create all the parents
+    if (file.getParent() != null) fs.mkdirs(file.getParent());
+    return fs.createNewFile(file);
   }
 }

@@ -350,9 +350,9 @@ public class HStore extends SchemaConfigured implements Store {
   public static Path getStoreHomedir(final Path parentRegionDirectory, final byte[] family) {
     return new Path(parentRegionDirectory, new Path(Bytes.toString(family)));
   }
+
   /**
-   * Return the directory in which this store stores its
-   * StoreFiles
+   * Return the directory in which this store stores its StoreFiles
    */
   Path getHomedir() {
     return homedir;

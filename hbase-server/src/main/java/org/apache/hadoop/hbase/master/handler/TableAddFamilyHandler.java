@@ -35,7 +35,7 @@ import org.apache.hadoop.hbase.master.MasterServices;
  * Handles adding a new family to an existing table.
  */
 @InterfaceAudience.Private
-public class TableAddFamilyHandler extends TableEventHandler {
+public class TableAddFamilyHandler extends ModifyTableEventHandler {
 
   private final HColumnDescriptor familyDesc;
 

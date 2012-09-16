@@ -36,7 +36,7 @@ import org.apache.hadoop.hbase.util.Threads;
 import org.apache.zookeeper.KeeperException;
 
 @InterfaceAudience.Private
-public class DeleteTableHandler extends TableEventHandler {
+public class DeleteTableHandler extends ModifyTableEventHandler {
   private static final Log LOG = LogFactory.getLog(DeleteTableHandler.class);
 
   public DeleteTableHandler(byte [] tableName, Server server,

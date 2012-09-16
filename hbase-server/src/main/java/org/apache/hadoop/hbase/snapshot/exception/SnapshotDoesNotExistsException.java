@@ -15,31 +15,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.hadoop.hbase.snapshot.exception;
 
-// This file contains protocol buffers that are written into the filesystem
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 
-option java_package = "org.apache.hadoop.hbase.protobuf.generated";
-option java_outer_classname = "FSProtos";
-option java_generate_equals_and_hash = true;
-option optimize_for = SPEED;
 
 /**
- * The ${HBASE_ROOTDIR}/hbase.version file content
+ * Thrown when the server is looking for a snapshot but can't find the snapshot on the filesystem
  */
-message HBaseVersionFileContent {
-  required string version = 1;
-}
+@SuppressWarnings("serial")
+public class SnapshotDoesNotExistsException extends HBaseSnapshotException {
 
-/**
- * Reference file content used when we split an hfile under a region.
- */
-message Reference {
-  required bytes splitkey = 1;
-  enum Range {
-    TOP = 0;
-    BOTTOM = 1;
-    WHOLE = 2;
+  /**
+   * @param desc expected snapshot to find
+   */
+  public SnapshotDoesNotExistsException(SnapshotDescription desc) {
+    super("Snapshot doesn't exist on the filesyste", desc);
   }
-  required Range range = 2;
-}
 
+}

@@ -30,7 +30,7 @@ import org.apache.hadoop.hbase.master.MasterCoprocessorHost;
 import org.apache.hadoop.hbase.master.MasterServices;
 
 @InterfaceAudience.Private
-public class ModifyTableHandler extends TableEventHandler {
+public class ModifyTableHandler extends ModifyTableEventHandler {
   private final HTableDescriptor htd;
 
   public ModifyTableHandler(final byte [] tableName,

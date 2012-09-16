@@ -15,31 +15,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-// This file contains protocol buffers that are written into the filesystem
-
-option java_package = "org.apache.hadoop.hbase.protobuf.generated";
-option java_outer_classname = "FSProtos";
-option java_generate_equals_and_hash = true;
-option optimize_for = SPEED;
+package org.apache.hadoop.hbase.server;
 
 /**
- * The ${HBASE_ROOTDIR}/hbase.version file content
+ * Determine if a task is finished or not.
  */
-message HBaseVersionFileContent {
-  required string version = 1;
-}
+public interface Finishable {
 
-/**
- * Reference file content used when we split an hfile under a region.
- */
-message Reference {
-  required bytes splitkey = 1;
-  enum Range {
-    TOP = 0;
-    BOTTOM = 1;
-    WHOLE = 2;
-  }
-  required Range range = 2;
-}
+  /**
+   * Tell the task to be finished
+   */
+  void finish();
 
+  /**
+   * @return if task is finished or not
+   */
+  boolean getFinished();
+
+}

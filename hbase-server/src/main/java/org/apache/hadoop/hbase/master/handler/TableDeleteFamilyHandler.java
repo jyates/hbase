@@ -35,7 +35,7 @@ import org.apache.hadoop.hbase.util.Bytes;
  * Handles adding a new family to an existing table.
  */
 @InterfaceAudience.Private
-public class TableDeleteFamilyHandler extends TableEventHandler {
+public class TableDeleteFamilyHandler extends ModifyTableEventHandler {
 
   private final byte [] familyName;
 

@@ -15,31 +15,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.hadoop.hbase.server;
 
-// This file contains protocol buffers that are written into the filesystem
-
-option java_package = "org.apache.hadoop.hbase.protobuf.generated";
-option java_outer_classname = "FSProtos";
-option java_generate_equals_and_hash = true;
-option optimize_for = SPEED;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hbase.Abortable;
 
 /**
- * The ${HBASE_ROOTDIR}/hbase.version file content
+ * A simple {@link Abortable} that manages whether or not the object has been aborted yet.
+ * <p>
+ * Subclasses should ensure that they call {@link #abort(String, Throwable)} in this class when
+ * overriding the abort method.
  */
-message HBaseVersionFileContent {
-  required string version = 1;
-}
+public class Aborting implements Abortable {
 
-/**
- * Reference file content used when we split an hfile under a region.
- */
-message Reference {
-  required bytes splitkey = 1;
-  enum Range {
-    TOP = 0;
-    BOTTOM = 1;
-    WHOLE = 2;
+  private volatile boolean aborted;
+  private static final Log LOG = LogFactory.getLog(Aborting.class);
+
+  @Override
+  public void abort(String why, Throwable e) {
+    if (this.aborted) return;
+    this.aborted = true;
+    LOG.warn("Aborting because: " + why, e);
   }
-  required Range range = 2;
-}
 
+  @Override
+  public boolean isAborted() {
+    return this.aborted;
+  }
+
+}
