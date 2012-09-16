@@ -15,47 +15,42 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.snapshot;
+package org.apache.hadoop.hbase.snapshot.exception;
 
-import org.apache.hadoop.hbase.HBaseIOException;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 
 /**
- * General exception when a snapshot fails.
+ * Thrown when a snapshot exists but should not
  */
 @SuppressWarnings("serial")
-public class HBaseSnapshotException extends HBaseIOException {
+@InterfaceAudience.Public
+@InterfaceStability.Evolving
+public class SnapshotExistsException extends HBaseSnapshotException {
 
-  private SnapshotDescription description;
-
-  public HBaseSnapshotException(String msg) {
-    super(msg);
+  public SnapshotExistsException(String msg, SnapshotDescription desc) {
+    super(msg, desc);
   }
 
-  public HBaseSnapshotException(String msg, Throwable cause) {
+  public SnapshotExistsException(String msg, Throwable cause, SnapshotDescription desc) {
+    super(msg, cause, desc);
+  }
+
+  public SnapshotExistsException(String msg, Throwable cause) {
     super(msg, cause);
   }
 
-  public HBaseSnapshotException(Throwable cause) {
-    super(cause);
-  }
-
-  public HBaseSnapshotException(String msg, SnapshotDescription desc) {
+  public SnapshotExistsException(String msg) {
     super(msg);
-    this.description = desc;
   }
 
-  public HBaseSnapshotException(Throwable cause, SnapshotDescription desc) {
+  public SnapshotExistsException(Throwable cause, SnapshotDescription desc) {
+    super(cause, desc);
+  }
+
+  public SnapshotExistsException(Throwable cause) {
     super(cause);
-    this.description = desc;
   }
 
-  public HBaseSnapshotException(String msg, Throwable cause, SnapshotDescription desc) {
-    super(msg, cause);
-    this.description = desc;
-  }
-
-  public SnapshotDescription getSnapshotDescription() {
-    return this.description;
-  }
 }

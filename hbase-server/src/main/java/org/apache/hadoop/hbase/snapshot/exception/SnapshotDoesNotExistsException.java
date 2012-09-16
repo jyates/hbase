@@ -15,15 +15,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.snapshot;
+package org.apache.hadoop.hbase.snapshot.exception;
+
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+
 
 /**
- * Exception thrown when we get a snapshot error about a snapshot we don't know or recognize.
+ * Thrown when the server is looking for a snapshot but can't find the snapshot on the filesystem
  */
 @SuppressWarnings("serial")
-public class UnknownSnapshotException extends SnapshotCreationException {
+@InterfaceAudience.Public
+@InterfaceStability.Evolving
+public class SnapshotDoesNotExistsException extends HBaseSnapshotException {
 
-  public UnknownSnapshotException(String msg) {
-    super(msg);
+  /**
+   * @param desc expected snapshot to find
+   */
+  public SnapshotDoesNotExistsException(SnapshotDescription desc) {
+    super("Snapshot doesn't exist on the filesyste", desc);
   }
+
 }
