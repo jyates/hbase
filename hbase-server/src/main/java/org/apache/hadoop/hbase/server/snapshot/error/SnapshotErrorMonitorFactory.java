@@ -20,7 +20,6 @@ import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestrator;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestratorFactory;
 import org.apache.hadoop.hbase.server.errorhandling.impl.InjectingExceptionDispatcher;
 import org.apache.hadoop.hbase.server.snapshot.errorhandling.SnapshotExceptionDispatcher;
-import org.apache.hadoop.hbase.server.snapshot.errorhandling.SnapshotExceptionDispatcher.DelegatingDispatcher;
 import org.apache.hadoop.hbase.server.snapshot.errorhandling.SnapshotExceptionVisitor;
 import org.apache.hadoop.hbase.server.snapshot.errorhandling.SnapshotExceptionVisitor.BoundSnapshotErrorVisitor;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
@@ -48,7 +47,8 @@ public class SnapshotErrorMonitorFactory
    * @param snapshot snapshot to bind to the monitor
    * @return an error monitor for the given snapshot.
    */
-  public synchronized SnapshotErrorListener createMonitorForSnapshot(SnapshotDescription snapshot) {
+  public synchronized SnapshotExceptionDispatcher createMonitorForSnapshot(
+      SnapshotDescription snapshot) {
     return createSnapshotDispatcher(new BoundSnapshotErrorVisitor(snapshot));
   }
 
@@ -59,13 +59,16 @@ public class SnapshotErrorMonitorFactory
    * {@link #createMonitorForSnapshot(SnapshotDescription)}.
    * @return a snapshot error monitor that accepts errors for all snapshots
    */
-  public synchronized SnapshotErrorListener createGenericSnapshotErrorMonitor() {
+  public synchronized SnapshotExceptionDispatcher createGenericSnapshotErrorMonitor() {
     return createSnapshotDispatcher(new SnapshotExceptionVisitor());
   }
 
-  private SnapshotErrorListener createSnapshotDispatcher(SnapshotExceptionVisitor visitor) {
+  private SnapshotExceptionDispatcher createSnapshotDispatcher(
+      SnapshotExceptionVisitor visitor) {
+    // get a generic error dispatcher
     ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException> handler = createErrorHandler();
-    DelegatingDispatcher listener = new SnapshotExceptionDispatcher.DelegatingDispatcher(handler);
+    // then wrap it so we can pass along snapshot specific exception
+    SnapshotExceptionDispatcher listener = new SnapshotExceptionDispatcher(handler);
     // propagate errors from the hub to the listener
     this.getHub().addErrorListener(visitor, listener);
     // propagate errors from the listener to the hub
@@ -80,7 +83,7 @@ public class SnapshotErrorMonitorFactory
   @Override
   protected ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException> buildErrorHandler(
       ExceptionVisitor<SnapshotFailureListener> visitor) {
-    return new SnapshotExceptionDispatcher.GenericDispatcher(visitor);
+    return new ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException>(visitor);
   }
 
   @Override

@@ -161,8 +161,7 @@ public class TakeSnapshotUtils {
   @SuppressWarnings("rawtypes")
   public static OperationAttemptTimer getMasterTimerAndBindToMonitor(SnapshotDescription snapshot,
       Configuration conf, ExceptionListener monitor) {
-    long maxTime = SnapshotDescriptionUtils.getMaxMasterTimeout(conf, snapshot.getType(),
-      SnapshotDescriptionUtils.DEFAULT_MAX_WAIT_TIME);
+    long maxTime = SnapshotDescriptionUtils.getMaxMasterTimeout(conf, snapshot.getType());
     return new OperationAttemptTimer(monitor, maxTime, snapshot);
   }
 

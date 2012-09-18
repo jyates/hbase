@@ -30,8 +30,8 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.Server;
+import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.master.MasterServices;
-import org.apache.hadoop.hbase.master.snapshot.manage.SnapshotManager;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.server.errorhandling.OperationAttemptTimer;
@@ -40,6 +40,7 @@ import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
 import org.apache.hadoop.hbase.server.snapshot.task.ReferenceServerWALsTask;
 import org.apache.hadoop.hbase.server.snapshot.task.TableInfoCopyTask;
 import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.hadoop.hbase.util.Pair;
 import org.apache.zookeeper.KeeperException;
 
 /**
@@ -82,12 +83,14 @@ public class DisabledTableSnapshotHandler extends TableSnapshotHandler {
   // TODO consider parallelizing these operations since they are independent. Right now its just
   // easier to keep them serial though
   @Override
-  protected void snapshot(List<HRegionInfo> regions) throws IOException, KeeperException {
+  protected void snapshot(List<Pair<HRegionInfo, ServerName>> regions) throws IOException,
+      KeeperException {
     // 0. start the timer for taking the snapshot
     timer.start();
     // 1. for each region, write all the info to disk
     LOG.info("Starting to write region info and WALs for regions for offline snapshot:" + snapshot);
-    for (HRegionInfo regionInfo : regions) {
+    for (Pair<HRegionInfo, ServerName> region : regions) {
+      HRegionInfo regionInfo = region.getFirst();
       // 1.1 copy the regionInfo files to the snapshot
       Path snapshotRegionDir = TakeSnapshotUtils.getRegionSnaphshotDirectory(snapshot, rootDir,
         regionInfo.getEncodedName());

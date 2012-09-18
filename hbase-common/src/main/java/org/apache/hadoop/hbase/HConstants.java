@@ -713,6 +713,8 @@ public final class HConstants {
       Arrays.asList(new String[] { HREGION_LOGDIR_NAME, HREGION_OLDLOGDIR_NAME, CORRUPT_DIR_NAME,
           Bytes.toString(META_TABLE_NAME), Bytes.toString(ROOT_TABLE_NAME), SPLIT_LOGDIR_NAME,
           HBCK_SIDELINEDIR_NAME, SNAPSHOT_DIR }));
+  /** Name of the operation to use in the controller */
+  public static final String ONLINE_SNAPSHOT_CONTROLLER_DESCRIPTION = "online-snapshot";
   
   private HConstants() {
     // Can't be instantiated with this ctor.

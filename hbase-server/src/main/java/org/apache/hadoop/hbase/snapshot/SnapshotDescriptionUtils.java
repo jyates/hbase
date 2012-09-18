@@ -92,11 +92,9 @@ public class SnapshotDescriptionUtils {
   /**
    * @param conf {@link Configuration} from which to check for the timeout
    * @param type type of snapshot being taken
-   * @param defaultMaxWaitTime Default amount of time to wait, if none is in the configuration
    * @return the max amount of time the master should wait for a snapshot to complete
    */
-  public static long getMaxMasterTimeout(Configuration conf, SnapshotDescription.Type type,
-      long defaultMaxWaitTime) {
+  public static long getMaxMasterTimeout(Configuration conf, SnapshotDescription.Type type) {
     String confKey;
     switch (type) {
     case GLOBAL:
@@ -106,17 +104,15 @@ public class SnapshotDescriptionUtils {
     default:
       confKey = MASTER_WAIT_TIME_TIMESTAMP_SNAPSHOT;
     }
-    return conf.getLong(confKey, defaultMaxWaitTime);
+    return conf.getLong(confKey, DEFAULT_MAX_WAIT_TIME);
   }
 
   /**
    * @param conf {@link Configuration} from which to check for the timeout
    * @param type type of snapshot being taken
-   * @param defaultMaxWaitTime Default amount of time to wait, if none is in the configuration
    * @return the max amount of time the region should wait for a snapshot to complete
    */
-  public static long getMaxRegionTimeout(Configuration conf, SnapshotDescription.Type type,
-      long defaultMaxWaitTime) {
+  public static long getMaxRegionTimeout(Configuration conf, SnapshotDescription.Type type) {
     String confKey;
     switch (type) {
     case GLOBAL:
@@ -126,7 +122,7 @@ public class SnapshotDescriptionUtils {
     default:
       confKey = REGION_WAIT_TIME_TIMESTAMP_SNAPSHOT;
     }
-    return conf.getLong(confKey, defaultMaxWaitTime);
+    return conf.getLong(confKey, DEFAULT_REGION_SNAPSHOT_TIMEOUT);
   }
 
   /**

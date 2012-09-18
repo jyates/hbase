@@ -93,7 +93,6 @@ public class SnapshotExceptionVisitor implements ExceptionVisitor<SnapshotFailur
       if (this.snapshot.equals(snapshot)) {
         super.visit(listener, message, e, info);
       }
-
     }
   }
 }

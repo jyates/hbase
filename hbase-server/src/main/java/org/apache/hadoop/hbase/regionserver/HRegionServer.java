@@ -195,6 +195,7 @@ import org.apache.hadoop.hbase.regionserver.metrics.RegionServerDynamicMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.RegionServerMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.SchemaMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.SchemaMetrics.StoreMetricType;
+import org.apache.hadoop.hbase.regionserver.snapshot.RegionServerSnapshotHandler;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.WALActionsListener;
 import org.apache.hadoop.hbase.security.User;
@@ -444,6 +445,8 @@ public class  HRegionServer implements ClientProtocol,
    */
   private final QosFunction qosFunction;
 
+  /** Handle all the snapshot requests to this server */
+  RegionServerSnapshotHandler snapshotHandler;
 
   /**
    * Starts a HRegionServer at the default location
@@ -776,6 +779,13 @@ public class  HRegionServer implements ClientProtocol,
     } catch (KeeperException e) {
       this.abort("Failed to retrieve Cluster ID",e);
     }
+
+    // watch for snapshots
+    try {
+      this.snapshotHandler = new RegionServerSnapshotHandler(conf, zooKeeper, this);
+    } catch (KeeperException e) {
+      this.abort("Failed to reach zk cluster when creating snapshot handler.");
+    }
   }
 
   /**
@@ -854,6 +864,9 @@ public class  HRegionServer implements ClientProtocol,
       }
       registerMBean();
 
+      // start the snapshot handler, since the server is ready to run
+      this.snapshotHandler.start();
+
       // We registered with the Master.  Go into run mode.
       long lastMsg = 0;
       long oldRequestCount = -1;
@@ -931,6 +944,12 @@ public class  HRegionServer implements ClientProtocol,
     if (this.hlogRoller != null) this.hlogRoller.interruptIfNecessary();
     if (this.compactionChecker != null)
       this.compactionChecker.interrupt();
+
+    try {
+      if (snapshotHandler != null) snapshotHandler.close(this.abortRequested);
+    } catch (IOException e) {
+      LOG.warn("Failed to close snapshot handler cleanly", e);
+    }
 
     if (this.killed) {
       // Just skip out w/o closing regions.  Used when testing.

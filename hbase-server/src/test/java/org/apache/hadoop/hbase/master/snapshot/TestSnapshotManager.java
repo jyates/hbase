@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.master.snapshot.manage;
+package org.apache.hadoop.hbase.master.snapshot;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -34,14 +34,14 @@ import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.master.MasterFileSystem;
 import org.apache.hadoop.hbase.master.MasterServices;
-import org.apache.hadoop.hbase.master.snapshot.TableSnapshotHandler;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+import org.apache.hadoop.hbase.server.commit.distributed.coordinator.DistributedThreePhaseCommitCoordinator;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestrator;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionSnare;
+import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorMonitorFactory;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
 import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
 import org.apache.hadoop.hbase.util.FSUtils;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.zookeeper.KeeperException;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -56,11 +56,14 @@ public class TestSnapshotManager {
   private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
 
   MasterServices services = Mockito.mock(MasterServices.class);
-  ZooKeeperWatcher watcher = Mockito.mock(ZooKeeperWatcher.class);
+  DistributedThreePhaseCommitCoordinator coordinator = Mockito.mock(DistributedThreePhaseCommitCoordinator.class);
+  SnapshotErrorMonitorFactory factory;
 
   private SnapshotManager getNewManager() throws KeeperException {
-    Mockito.reset(services, watcher);
-    return new SnapshotManager(services, watcher);
+    Mockito.reset(services, coordinator);
+    Mockito.when(services.getConfiguration()).thenReturn(UTIL.getConfiguration());
+    factory = new SnapshotErrorMonitorFactory();
+    return new SnapshotManager(services, coordinator, factory);
   }
 
   @Test

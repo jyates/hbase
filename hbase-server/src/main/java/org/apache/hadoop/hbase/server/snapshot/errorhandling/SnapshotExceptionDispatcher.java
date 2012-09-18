@@ -18,112 +18,44 @@
 package org.apache.hadoop.hbase.server.snapshot.errorhandling;
 
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.server.errorhandling.*;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionDispatcher;
 import org.apache.hadoop.hbase.server.errorhandling.impl.delegate.DelegatingExceptionDispatcher;
 import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
 import org.apache.hadoop.hbase.server.snapshot.error.SnapshotFailureListener;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
-import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
 
 /**
  * Wrapper class to pass snapshot errors onto a general listener.
  */
-public class SnapshotExceptionDispatcher implements SnapshotFailureListener {
+public class SnapshotExceptionDispatcher extends
+    DelegatingExceptionDispatcher<ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException>, SnapshotFailureListener, HBaseSnapshotException>
+    implements
+ SnapshotErrorListener {
   /**
-   * {@link SnapshotErrorListener} that just delegates all error handling to an an underlying
-   * dispatcher
+   * Create an error monitor for a snapshot that inherently will dispatch errors to any currently
+   * bound listeners
+   * @param delegate receives exceptions from {@link SnapshotErrorListener} methods to propaagte
+   *          failures
    */
-  public static class DelegatingDispatcher
-      extends
-      DelegatingExceptionDispatcher<ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException>, SnapshotFailureListener, HBaseSnapshotException>
-      implements SnapshotErrorListener {
-
-    private final SnapshotExceptionDispatcher handler;
-
-    /**
-     * Create an error monitor for a snapshot that inherently will dispatch errors to any currently
-     * bound listeners
-     * @param delegate to update with snapshot errors
-     */
-    public DelegatingDispatcher(
-        ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException> delegate) {
-      super(delegate);
-      this.handler = new SnapshotExceptionDispatcher(this);
-    }
-
-    @Override
-    public void snapshotFailure(String reason, SnapshotDescription snapshot) {
-      handler.snapshotFailure(reason, snapshot);
-    }
-
-    @Override
-    public void snapshotFailure(String reason, SnapshotDescription snapshot, Exception t) {
-      handler.snapshotFailure(reason, snapshot, t);
-    }
-
-    @Override
-    public void snapshotFailure(String reason, String snapshotName) {
-      handler.snapshotFailure(reason, snapshotName);
-    }
-  }
-
-  /**
-   * Generic {@link SnapshotErrorListener} that passes specific snapshot errors to a generic
-   * listener
-   */
-  public static class GenericDispatcher extends
-      ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException> implements
-      SnapshotFailureListener {
-
-    private final SnapshotExceptionDispatcher handler;
-
-    /**
-     * Create an error monitor for a snapshot that inherently will dispatch errors to any currently
-     * bound listeners
-     * @param visitor to apply to {@link SnapshotErrorListener} when propaagting failures
-     */
-    public GenericDispatcher(ExceptionVisitor<SnapshotFailureListener> visitor) {
-      super(visitor);
-      this.handler = new SnapshotExceptionDispatcher(this);
-    }
-
-    @Override
-    public void snapshotFailure(String reason, SnapshotDescription snapshot) {
-      handler.snapshotFailure(reason, snapshot);
-    }
-
-    @Override
-    public void snapshotFailure(String reason, SnapshotDescription snapshot, Exception t) {
-      handler.snapshotFailure(reason, snapshot, t);
-    }
-
-    @Override
-    public void snapshotFailure(String reason, String snapshotName) {
-      handler.snapshotFailure(reason, snapshotName);
-    }
-  }
-
-  private ExceptionListener<HBaseSnapshotException> listener;
-
-  private SnapshotExceptionDispatcher(ExceptionListener<HBaseSnapshotException> listener) {
-    this.listener = listener;
+  public SnapshotExceptionDispatcher(
+      ExceptionDispatcher<SnapshotFailureListener, HBaseSnapshotException> delegate) {
+    super(delegate);
   }
 
   @Override
   public void snapshotFailure(String reason, SnapshotDescription snapshot) {
-    this.snapshotFailure(reason, snapshot, new SnapshotCreationException(reason, snapshot));
+    this.snapshotFailure(reason, snapshot, new HBaseSnapshotException(reason, snapshot));
   }
 
   @Override
   public void snapshotFailure(String reason, SnapshotDescription snapshot, Exception t) {
-    listener.receiveError(reason,
+    this.receiveError(reason,
       SnapshotExceptionVisitor.getExceptionAsSnapshotException(reason, snapshot, t), snapshot);
   }
 
   @Override
   public void snapshotFailure(String reason, String snapshotName) {
-    listener.receiveError(reason, new HBaseSnapshotException("Failed snapshot:" + snapshotName
+    this.receiveError(reason, new HBaseSnapshotException("Failed snapshot:" + snapshotName
         + " because " + reason), snapshotName);
   }
 }

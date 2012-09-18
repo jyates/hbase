@@ -165,4 +165,20 @@ public class TestSnapshotFromClient {
     snapshots = admin.listSnapshots();
     SnapshotTestingUtils.assertNoSnapshots(admin);
   }
+
+  private void logFSTree(Path root) throws IOException {
+    LOG.debug("Current file system:");
+    logFSTree(root, "|-");
+  }
+
+  private void logFSTree(Path root, String prefix) throws IOException {
+    for (FileStatus file : UTIL.getDFSCluster().getFileSystem().listStatus(root)) {
+      if (file.isDir()) {
+        LOG.debug(prefix + file.getPath().getName() + "/");
+        logFSTree(file.getPath(), prefix + "---");
+      } else {
+        LOG.debug(prefix + file.getPath().getName());
+      }
+    }
+  }
 }

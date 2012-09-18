@@ -32,11 +32,11 @@ import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.Server;
+import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.catalog.MetaReader;
 import org.apache.hadoop.hbase.io.Reference;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.handler.TableEventHandler;
-import org.apache.hadoop.hbase.master.snapshot.manage.SnapshotManager;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription.Type;
 import org.apache.hadoop.hbase.regionserver.HRegion;
@@ -53,6 +53,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.HFileArchiveUtil;
+import org.apache.hadoop.hbase.util.Pair;
 import org.apache.zookeeper.KeeperException;
 
 /**
@@ -108,6 +109,8 @@ public abstract class TableSnapshotHandler extends TableEventHandler implements 
 
       List<HRegionInfo> regions = MetaReader.getTableRegions(this.server.getCatalogTracker(),
         tableName);
+      List<Pair<HRegionInfo, ServerName>> regions = MetaReader.getTableRegionsAndLocations(
+        this.server.getCatalogTracker(), tableName, true);
       // run the snapshot
       snapshot(regions);
 
@@ -272,7 +275,8 @@ public abstract class TableSnapshotHandler extends TableEventHandler implements 
   /**
    * Run a snapshot from the master
    */
-  protected abstract void snapshot(List<HRegionInfo> regions) throws IOException, KeeperException;
+  protected abstract void snapshot(List<Pair<HRegionInfo, ServerName>> regions) throws IOException,
+      KeeperException;
 
   @Override
   public void finish() {
