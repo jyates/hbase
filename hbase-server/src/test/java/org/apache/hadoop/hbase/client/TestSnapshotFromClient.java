@@ -166,6 +166,91 @@ public class TestSnapshotFromClient {
     SnapshotTestingUtils.assertNoSnapshots(admin);
   }
 
+  @Test(timeout = 15000)
+  public void testAsyncSnapshot() throws Exception {
+    HBaseAdmin admin = UTIL.getHBaseAdmin();
+    SnapshotDescription snapshot = SnapshotDescription.newBuilder().setName("asyncSnapshot")
+        .setTable(STRING_TABLE_NAME).build();
+
+    // take the snapshot async
+    admin.takeSnapshotAsync(snapshot);
+
+    // constantly loop, looking for the snapshot to complete
+    HMaster master = UTIL.getMiniHBaseCluster().getMaster();
+    SnapshotTestingUtils.waitForSnapshotToComplete(master, snapshot, 200);
+
+    // make sure we get the snapshot
+    SnapshotTestingUtils.assertOneSnapshotThatMatches(admin, snapshot);
+
+    // test that we can delete the snapshot
+    admin.deleteSnapshot(snapshot.getName());
+
+    // make sure we don't have any snapshots
+    SnapshotTestingUtils.assertNoSnapshots(admin);
+  }
+
+  /**
+   * Basic end-to-end test of timestamp based snapshots
+   * @throws Exception
+   */
+  @Test
+  public void testTimestampedCreateListDestroy() throws Exception {
+    LOG.debug("------- Starting Snapshot test -------------");
+    HBaseAdmin admin = UTIL.getHBaseAdmin();
+    // make sure we don't fail on listing snapshots
+    SnapshotTestingUtils.assertNoSnapshots(admin);
+    // load the table so we have some data
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
+    // and wait until everything stabilizes
+    HRegionServer rs = UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+    List<HRegion> onlineRegions = rs.getOnlineRegions(TABLE_NAME);
+    for (HRegion region : onlineRegions) {
+      region.waitForFlushesAndCompactions();
+    }
+    String snapshotName = "timestampSnapshotCreateListDestroy";
+    // test creating the snapshot
+    admin.snapshot(snapshotName, STRING_TABLE_NAME);
+    logFSTree(new Path(UTIL.getConfiguration().get(HConstants.HBASE_DIR)));
+
+    // make sure we only have 1 matching snapshot
+    List<SnapshotDescription> snapshots = SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,
+      snapshotName, STRING_TABLE_NAME);
+
+    // check the directory structure
+    FileSystem fs = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+    Path rootDir = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+    Path snapshotDir = SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshots.get(0), rootDir);
+    assertTrue(fs.exists(snapshotDir));
+    Path snapshotinfo = new Path(snapshotDir, SnapshotDescriptionUtils.SNAPSHOTINFO_FILE);
+    assertTrue(fs.exists(snapshotinfo));
+
+    // check the table info
+    HTableDescriptor desc = FSTableDescriptors.getTableDescriptor(fs, rootDir, TABLE_NAME);
+    HTableDescriptor snapshotDesc = FSTableDescriptors.getTableDescriptor(fs, snapshotDir,
+      TABLE_NAME);
+    assertEquals(desc, snapshotDesc);
+
+    // check the region snapshot for all the regions
+    List<HRegionInfo> regions = admin.getTableRegions(TABLE_NAME);
+    for (HRegionInfo info : regions) {
+      String regionName = info.getEncodedName();
+      Path regionDir = new Path(snapshotDir, regionName);
+      HRegionInfo snapshotRegionInfo = HRegion.loadDotRegionInfoFileContent(fs, regionDir);
+      assertEquals(info, snapshotRegionInfo);
+      // check to make sure we have the family
+      Path familyDir = new Path(regionDir, Bytes.toString(TEST_FAM));
+      assertTrue(fs.exists(familyDir));
+      // make sure we have some file references
+      assertTrue(fs.listStatus(familyDir).length > 0);
+    }
+
+    // test that we can delete the snapshot
+    admin.deleteSnapshot(snapshotName);
+
+    // make sure we don't have any snapshots
+    SnapshotTestingUtils.assertNoSnapshots(admin);
+  }
+
   private void logFSTree(Path root) throws IOException {
     LOG.debug("Current file system:");
     logFSTree(root, "|-");

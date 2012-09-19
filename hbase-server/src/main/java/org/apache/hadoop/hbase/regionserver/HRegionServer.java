@@ -967,6 +967,13 @@ public class  HRegionServer implements ClientProtocol,
     // handlers are stuck waiting on meta or root.
     if (this.catalogTracker != null) this.catalogTracker.stop();
 
+    // stop the snapshot handler, forcefully killing all running tasks
+    try {
+      if (snapshotHandler != null) snapshotHandler.close(this.abortRequested || this.killed);
+    } catch (IOException e) {
+      LOG.warn("Failed to close snapshot handler cleanly", e);
+    }
+
     // Closing the compactSplit thread before closing meta regions
     if (!this.killed && containsMetaTableRegions()) {
       if (!abortRequested || this.fsOk) {

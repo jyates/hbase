@@ -242,7 +242,10 @@ public class RegionServerSnapshotHandler extends Configured implements Abortable
         case GLOBAL:
           throw new IllegalArgumentException("Unimpememted snapshot type:" + snapshot.getType());
         case TIMESTAMP:
-          throw new IllegalArgumentException("Unimpememted snapshot type:" + snapshot.getType());
+          return new TimestampSnapshotOperation(errorDispatcher, wakeFrequency,
+              timestampSnapshotTimeout, involvedRegions, snapshot,
+              RegionServerSnapshotHandler.this.getConf(), taskManager, snapshotErrorMonitorFactory,
+              parent.getFileSystem());
         default:
           throw new IllegalArgumentException("Unrecognized snapshot type:" + snapshot.getType());
         }

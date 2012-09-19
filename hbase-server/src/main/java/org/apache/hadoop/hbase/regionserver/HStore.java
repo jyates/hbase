@@ -161,22 +161,36 @@ public class HStore extends SchemaConfigured implements Store {
   private final Compactor compactor;
 
   /**
-   * Constructor
-   * @param basedir qualified path under which the region directory lives;
-   * generally the table subdirectory
+   * Create an {@link HStore} with a new {@link MemStore}
+   * @param basedir qualified path under which the region directory lives; generally the table
+   *          subdirectory
    * @param region
    * @param family HColumnDescriptor for this column
    * @param fs file system object
-   * @param confParam configuration object
-   * failed.  Can be null.
+   * @param conf configuration object.
    * @throws IOException
    */
-  protected HStore(Path basedir, HRegion region, HColumnDescriptor family,
-      FileSystem fs, Configuration confParam)
-  throws IOException {
-    super(new CompoundConfiguration().add(confParam).add(
-        family.getValues()), region.getRegionInfo().getTableNameAsString(),
-        Bytes.toString(family.getName()));
+  protected HStore(Path basedir, HRegion region, HColumnDescriptor family, FileSystem fs,
+      Configuration conf) throws IOException {
+    this(basedir, region, family, fs, conf, getNewMemStore(conf, region));
+  }
+
+  /**
+   * Create an {@link HStore} around an existing {@link MemStore}
+   * @param basedir qualified path under which the region directory lives; generally the table
+   *          subdirectory
+   * @param region parent region hosting <tt>this</tt>
+   * @param family HColumnDescriptor for this column
+   * @param fs file system object
+   * @param conf configuration object.
+   * @param memstore
+   * @throws IOException if we can't reach the filesystem or create the necessary directory
+   *           structure
+   */
+  protected HStore(Path basedir, HRegion region, HColumnDescriptor family, FileSystem fs,
+      Configuration conf, MemStore memstore) throws IOException {
+    super(new CompoundConfiguration().add(conf).add(family.getValues()), region.getRegionInfo()
+        .getTableNameAsString(), Bytes.toString(family.getName()));
     HRegionInfo info = region.getRegionInfo();
     this.fs = fs;
     // Assemble the store's home directory.
@@ -186,50 +200,42 @@ public class HStore extends SchemaConfigured implements Store {
     this.region = region;
     this.family = family;
     // 'conf' renamed to 'confParam' b/c we use this.conf in the constructor
-    this.conf = new CompoundConfiguration()
-      .add(confParam)
-      .add(family.getValues());
+    this.conf = new CompoundConfiguration().add(conf).add(family.getValues());
     this.blocksize = family.getBlocksize();
 
-    this.dataBlockEncoder =
-        new HFileDataBlockEncoderImpl(family.getDataBlockEncodingOnDisk(),
-            family.getDataBlockEncoding());
+    this.dataBlockEncoder = new HFileDataBlockEncoderImpl(family.getDataBlockEncodingOnDisk(),
+        family.getDataBlockEncoding());
 
     this.comparator = info.getComparator();
     // Get TTL
     this.ttl = getTTL(family);
     // used by ScanQueryMatcher
-    long timeToPurgeDeletes =
-        Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes", 0), 0);
-    LOG.trace("Time to purge deletes set to " + timeToPurgeDeletes +
-        "ms in store " + this);
-    // Why not just pass a HColumnDescriptor in here altogether?  Even if have
+    long timeToPurgeDeletes = Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes", 0), 0);
+    LOG.trace("Time to purge deletes set to " + timeToPurgeDeletes + "ms in store " + this);
+    // Why not just pass a HColumnDescriptor in here altogether? Even if have
     // to clone it?
     scanInfo = new ScanInfo(family, ttl, timeToPurgeDeletes, this.comparator);
-    this.memstore = new MemStore(conf, this.comparator);
+    this.memstore = memstore;
 
     // By default, compact if storefile.count >= minFilesToCompact
-    this.minFilesToCompact = Math.max(2,
-      conf.getInt("hbase.hstore.compaction.min",
-        /*old name*/ conf.getInt("hbase.hstore.compactionThreshold", 3)));
+    this.minFilesToCompact = Math.max(2, conf.getInt("hbase.hstore.compaction.min",
+    /* old name */conf.getInt("hbase.hstore.compactionThreshold", 3)));
     LOG.info("hbase.hstore.compaction.min = " + this.minFilesToCompact);
 
     // Setting up cache configuration for this family
     this.cacheConf = new CacheConfig(conf, family);
-    this.blockingStoreFileCount =
-      conf.getInt("hbase.hstore.blockingStoreFiles", 7);
+    this.blockingStoreFileCount = conf.getInt("hbase.hstore.blockingStoreFiles", 7);
 
     this.maxFilesToCompact = conf.getInt("hbase.hstore.compaction.max", 10);
     this.minCompactSize = conf.getLong("hbase.hstore.compaction.min.size",
       this.region.memstoreFlushSize);
-    this.maxCompactSize
-      = conf.getLong("hbase.hstore.compaction.max.size", Long.MAX_VALUE);
+    this.maxCompactSize = conf.getLong("hbase.hstore.compaction.max.size", Long.MAX_VALUE);
 
     this.verifyBulkLoads = conf.getBoolean("hbase.hstore.bulkload.verify", false);
 
     if (HStore.closeCheckInterval == 0) {
-      HStore.closeCheckInterval = conf.getInt(
-          "hbase.hstore.close.check.interval", 10*1000*1000 /* 10 MB */);
+      HStore.closeCheckInterval = conf
+          .getInt("hbase.hstore.close.check.interval", 10 * 1000 * 1000 /* 10 MB */);
     }
     this.storefiles = sortAndClone(loadStoreFiles());
 
@@ -239,6 +245,33 @@ public class HStore extends SchemaConfigured implements Store {
     this.bytesPerChecksum = getBytesPerChecksum(conf);
     // Create a compaction tool instance
     this.compactor = new Compactor(this.conf);
+  }
+
+  /**
+   * Create a new {@link MemStore}
+   * @param conf {@link Configuration} to pass to the memstore
+   * @param region region hosting the store
+   * @return
+   */
+  private static MemStore getNewMemStore(Configuration conf, HRegion region) {
+    HRegionInfo info = region.getRegionInfo();
+    return new MemStore(conf, info.getComparator());
+  }
+
+  /**
+   * Clone the passed in store based on a snapshot of the current state of the store. Since the
+   * passed in store still serves reads from the snapshot (but doesn't write to the snapshot), care
+   * must be taken when dealing with the clone. However, the added benefit here is that any existing
+   * and readers will act normally on the snapshotted kv-set since we just pass around a pointer to
+   * the memstore (rather than a clone). This means any updates to the snapshot will be reflected in
+   * scanners of the primary store.
+   * @param store {@link HStore} to be snapshotted (via {@link #snapshot()} and then cloned.
+   * @return an {@link HStore} who's primary kv-set is a snapshot of the original store
+   */
+  static HStore snapshotAndClone(HStore store) throws IOException {
+    LOG.debug("Snapshotting and cloning store:" + store);
+    MemStore memstoreSnapshot = MemStore.snapshotAndClone(store);
+    return new HStore(store.homedir, store.region, store.family, store.fs, store.conf, memstoreSnapshot);
   }
 
   /**
@@ -2068,16 +2101,16 @@ public class HStore extends SchemaConfigured implements Store {
     return new StoreFlusherImpl(cacheFlushId);
   }
 
-  private class StoreFlusherImpl implements StoreFlusher {
+  public class StoreFlusherImpl implements StoreFlusher {
 
     private long cacheFlushId;
-    private SortedSet<KeyValue> snapshot;
+    SortedSet<KeyValue> snapshot;
     private StoreFile storeFile;
     private Path storeFilePath;
-    private TimeRangeTracker snapshotTimeRangeTracker;
-    private AtomicLong flushedSize;
+    TimeRangeTracker snapshotTimeRangeTracker;
+    private final AtomicLong flushedSize;
 
-    private StoreFlusherImpl(long cacheFlushId) {
+    StoreFlusherImpl(long cacheFlushId) {
       this.cacheFlushId = cacheFlushId;
       this.flushedSize = new AtomicLong();
     }
@@ -2111,6 +2144,11 @@ public class HStore extends SchemaConfigured implements Store {
       // Add new file to store files.  Clear snapshot too while we have
       // the Store write lock.
       return HStore.this.updateStorefiles(storeFile, snapshot);
+    }
+
+    @Override
+    public AtomicLong getFlushSize() {
+      return this.flushedSize;
     }
   }
 

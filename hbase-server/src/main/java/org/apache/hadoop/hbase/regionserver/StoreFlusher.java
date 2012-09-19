@@ -19,6 +19,7 @@
 package org.apache.hadoop.hbase.regionserver;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
@@ -62,4 +63,10 @@ interface StoreFlusher {
    * @throws IOException
    */
   boolean commit(MonitoredTask status) throws IOException;
+
+  /**
+   * Only accurate after calling {@link #prepare()}
+   * @return the size of the memstore (in bytes) being flushed.
+   */
+  AtomicLong getFlushSize();
 }

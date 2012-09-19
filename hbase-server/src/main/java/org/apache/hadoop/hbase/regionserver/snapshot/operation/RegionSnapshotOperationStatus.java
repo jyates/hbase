@@ -56,7 +56,7 @@ public class RegionSnapshotOperationStatus {
 
   /**
    * @param failureMonitor monitor to check periodically for errors
-   * @return <tt>true</tt> on success, <tt>false</tt> otherwise
+   * @return <tt>true</tt> on success, <tt>false</tt> if an error is found
    */
   public boolean waitUntilDone(SnapshotErrorListener failureMonitor) {
     LOG.debug("Expecting " + totalRegions + " to complete snapshot.");

@@ -36,6 +36,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
@@ -49,6 +50,8 @@ import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneRequest;
 import org.apache.hadoop.hbase.regionserver.snapshot.RegionServerSnapshotHandler;
+import org.apache.hadoop.hbase.regionserver.snapshot.error.StoresSwappedFaultPolicy;
+import org.apache.hadoop.hbase.server.commit.TwoPhaseCommit;
 import org.apache.hadoop.hbase.server.errorhandling.impl.CheckableFaultInjector;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestratorFactory;
 import org.apache.hadoop.hbase.server.errorhandling.impl.FaultInjectionPolicy;
@@ -65,6 +68,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 import com.google.protobuf.ServiceException;
@@ -97,6 +101,12 @@ public class TestSnapshotFromServer {
 
     // setup policy checking for the stores being swapped
 
+  }
+
+  private static FaultInjectionPolicy storesAreSwappedPolicy() {
+    List<HRegion> regions = UTIL.getMiniHBaseCluster().getRegions(TABLE_NAME);
+    return new ContainsClassInjectionPolicy(TwoPhaseCommit.class).and(new StoresSwappedFaultPolicy(
+        regions, TEST_FAM));
   }
 
   private static void setupConf(Configuration conf) {
@@ -143,6 +153,105 @@ public class TestSnapshotFromServer {
     } catch (Exception e) {
       // NOOP;
     }
+  }
+
+  @Test(timeout = 15000)
+  public void testAsyncSnapshotPropagatesServerFailure() throws Exception {
+    HBaseAdmin admin = UTIL.getHBaseAdmin();
+    final SnapshotDescription snapshot = SnapshotDescription.newBuilder()
+        .setName("asyncSnapshot_propagates_server_failure").setTable(STRING_TABLE_NAME).build();
+
+    SnapshotFailureInjector injector = new SnapshotFailureInjector(CONTAINS_HREGION, UTIL);
+    SnapshotFailureInjector.reset();
+    ExceptionOrchestratorFactory.addFaultInjector(injector);
+
+    // create the snapshot
+    admin.takeSnapshotAsync(snapshot);
+
+    // wait for the snapshot to complete, expecting a failure
+    try {
+      SnapshotTestingUtils.waitForSnapshotToComplete(UTIL.getHBaseCluster().getMaster(), snapshot,
+        ASYNC_WAIT_PERIOD);
+      fail("Snapshot should have propagated exception, but didn't");
+    } catch (ServiceException se) {
+      try {
+        throw ProtobufUtil.getRemoteException(se);
+      } catch (SnapshotCreationException e) {
+        LOG.debug("Correctly failed to create snapshot.", e);
+      }
+    }
+
+    assertTrue("Snapshot wasn't faulted by the injection handler",
+      SnapshotFailureInjector.getFaulted());
+
+    // cleanup after the test
+    SnapshotTestingUtils.cleanupSnapshot(admin, snapshot.getName());
+
+    // make sure we cleanup after ourselves
+    checkSnapshotDirectoryStructure(admin, snapshot);
+  }
+
+  @Test(timeout = 25000)
+  public void testRepeatSnasphotAfterFailure() throws Exception {
+    final HBaseAdmin admin = UTIL.getHBaseAdmin();
+    final String snapshotName = "repeatTimestampSnapshotWithFault";
+    Callable<Void> runSnapshot = new Callable<Void>() {
+
+      @Override
+      public Void call() throws Exception {
+        admin.snapshot(snapshotName, STRING_TABLE_NAME);
+        return null;
+      }
+    };
+    LOG.debug("----- Running snapshot, simple timestamp failure.");
+    runSnapshotWithFault(runSnapshot, snapshotName, CONTAINS_HREGION);
+    // make sure the snapshot cleaner finishes cleaning up the old snapshot
+    SnapshotCleaner.ensureCleanerRuns();
+    LOG.debug("---- Running snapshot that _should_ work");
+    // now run it again, without forcing an error
+    admin.snapshot(snapshotName, STRING_TABLE_NAME);
+
+    SnapshotDescription snapshot = SnapshotDescription.newBuilder().setName(snapshotName)
+        .setTable(STRING_TABLE_NAME).build();
+    // cleanup after the test
+    SnapshotTestingUtils.cleanupSnapshot(admin, snapshot.getName());
+
+    // make sure we cleanup after ourselves
+    checkSnapshotDirectoryStructure(admin, snapshot);
+  }
+
+  @Test(timeout = 20000)
+  public void testFaultInRegionTimestampSnapshot() throws Exception {
+    final HBaseAdmin admin = UTIL.getHBaseAdmin();
+    final String snapshotName = "timestampSnapshotWithFault";
+    Callable<Void> runSnapshot = new Callable<Void>() {
+
+      @Override
+      public Void call() throws Exception {
+        admin.snapshot(snapshotName, STRING_TABLE_NAME);
+        return null;
+      }
+    };
+    LOG.debug("----- Running snapshot, simple timestamp failure.");
+    runSnapshotWithFault(runSnapshot, snapshotName, CONTAINS_HREGION);
+
+    // now run it again, this time waiting for a store swap'
+    LOG.debug("----- Running snapshot, checking for swapped stores.");
+    // run a snapshot that faults when two-phase commit checks for an error and the stores have been
+    // swapped
+    runSnapshotWithFault(runSnapshot, snapshotName, storesAreSwappedPolicy());
+
+    // check the stores to make sure we swapped them back when we fail
+    LOG.debug("Checking to see if stores have been swapped after fail.");
+    List<HRegion> regions = UTIL.getMiniHBaseCluster().getRegions(TABLE_NAME);
+    for (HRegion region : regions) {
+      Store s = region.getStore(TEST_FAM);
+      LOG.debug("Checking store:" + s.getClass());
+      assertFalse("Region:" + region
+          + " has a TimePartitionedStore - didn't swap back store after fail!",
+        s instanceof TimePartitionedStore);
+    }
+    LOG.debug("Snapshot finished with correct memstores!");
   }
 
   private void runSnapshotWithFault(Callable<Void> snapshotRunner, String snapshotName,
@@ -223,7 +332,102 @@ public class TestSnapshotFromServer {
     // make sure we don't have any snapshots
     SnapshotTestingUtils.assertNoSnapshots(admin);
   }
+  
+  /**
+   * Test that we can read from a table mid-global snapshot (which blocks writes)
+   * @throws Exception on unexpected failure
+   */
+  @Test(timeout = 20000)
+  public void testNonBlockingReadingInTimestampSnapshot() throws Exception {
+    final String snapshotName = "timestampSnapshotWithReads";
+    timestampSnapshotWithConcurentOperation(snapshotName, CONCURRENT_READ_OPERATION, true,
+      CONTAINS_HREGION);
+  }
 
+  /**
+   * Test that we can still write to the table while running a timestamp consistent snapshot
+   * @throws Exception on failure
+   */
+  @Test(timeout = 15000)
+  @Category(LargeTests.class)
+  public void testNonBlockingWritesDuringTimestampSnapshot() throws Exception {
+    final String snapshotName = "timestampSnapshotWithConcurrentWrites";
+
+    // first just check that we can write during a snapshot
+    timestampSnapshotWithConcurentOperation(snapshotName, CONCURRENT_WRITE_OPERATION, false,
+      CONTAINS_HREGION);
+  }
+
+  /**
+   * Test that we can still write to the table while running the snapshot and the stores are swapped
+   * to the {@link TimePartitionedStore}
+   * @throws Exception on failure
+   */
+  @Test
+  public void testNonBlockingWritesWithSwappedStores() throws Exception {
+    final String snapshotName = "timestampSnapshotWithConcurrentWrites-swapped-stores";
+
+    // then check that we write when the stores have been swapped
+    timestampSnapshotWithConcurentOperation(snapshotName, CONCURRENT_WRITE_OPERATION, false,
+      storesAreSwappedPolicy());
+  }
+
+  /**
+   * Test that we can flush the cache while still running a snapshot
+   * @throws Exception on failure
+   */
+  @Test(timeout = 15000)
+  public void testFlushingWhileTimestampSnapshot() throws Exception {
+    final String snapshotName = "timestampSnapshotWithConcurrentFlush";
+
+    // make sure we can flush during a snapshot
+    timestampSnapshotWithConcurentOperation(snapshotName, CONCURRENT_FLUSH_OPERATION, false,
+      CONTAINS_HREGION);
+
+    // make sure we can push more data into the table after we are done
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), STRING_TABLE_NAME), TEST_FAM);
+    waitForTableToStabilize(TABLE_NAME);
+  }
+
+  /**
+   * Test that we can still flush the table while running the snapshot and the stores are swapped to
+   * the {@link TimePartitionedStore}
+   * @throws Exception on failure
+   */
+  @Test(timeout = 15000)
+  public void testFlushingWithSwappedStores() throws Exception {
+    final String snapshotName = "timestampSnapshot-With-Swapped-Stores-and-ConcurrentFlush";
+
+    timestampSnapshotWithConcurentOperation(snapshotName, CONCURRENT_FLUSH_OPERATION, false,
+      storesAreSwappedPolicy());
+
+    // make sure we can push more data into the table after we are done
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), STRING_TABLE_NAME), TEST_FAM);
+    waitForTableToStabilize(TABLE_NAME);
+  }
+
+  /**
+   * Run a timestamp consistent snapshot with a concurrent operation
+   * @param snapshotName name of the snapshot
+   * @param op operation to run while snapshotting
+   * @param loadTable <tt>true</tt> if the table should have data inserted before running the
+   *          snapshot
+   * @throws Exception on failure
+   */
+  private void timestampSnapshotWithConcurentOperation(final String snapshotName,
+      ConcurrentSnapshotOperation op, boolean loadTable, FaultInjectionPolicy andPolicy)
+      throws Exception {
+    final HBaseAdmin admin = UTIL.getHBaseAdmin();
+    Callable<Void> runSnapshot = new Callable<Void>() {
+
+      @Override
+      public Void call() throws Exception {
+        admin.snapshot(snapshotName, STRING_TABLE_NAME);
+        return null;
+      }
+    };
+    runSnapshotWithConcurrentOperation(runSnapshot, snapshotName, op, false, true, andPolicy);
+  }
 
   /**
    * Run a snapshot with a concurrent operation
