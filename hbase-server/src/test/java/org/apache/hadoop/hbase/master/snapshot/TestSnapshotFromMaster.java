@@ -17,24 +17,41 @@
  */
 package org.apache.hadoop.hbase.master.snapshot;
 
+import static org.apache.hadoop.hbase.master.cleaner.CleanerTestUtils.addHFileCleanerChecking;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.io.Reference;
 import org.apache.hadoop.hbase.master.HMaster;
+import org.apache.hadoop.hbase.master.cleaner.CleanerTestUtils;
+import org.apache.hadoop.hbase.master.cleaner.HFileCleaner;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneResponse;
+import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.snapshot.RegionServerSnapshotHandler;
+import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.SnapshotTestingUtils;
 import org.apache.hadoop.hbase.snapshot.exception.UnknownSnapshotException;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -55,6 +72,8 @@ public class TestSnapshotFromMaster {
   private static final String STRING_TABLE_NAME = "test";
   private static final byte[] TEST_FAM = Bytes.toBytes("fam");
   private static final byte[] TABLE_NAME = Bytes.toBytes(STRING_TABLE_NAME);
+  // refresh the cache every 1/2 second
+  private static final long cacheRefreshPeriod = 500;
 
   /**
    * Setup the config for the cluster
@@ -80,6 +99,11 @@ public class TestSnapshotFromMaster {
     conf.setInt("hbase.client.retries.number", 1);
     // set the number of threads to use for taking the snapshot
     conf.setInt(RegionServerSnapshotHandler.SNAPSHOT_REQUEST_THREADS, 2);
+    // set the only HFile cleaner as the snapshot cleaner
+    conf.setStrings(HFileCleaner.MASTER_HFILE_CLEANER_PLUGINS,
+      SnapshotHFileCleaner.class.getCanonicalName());
+    addHFileCleanerChecking(conf);
+    conf.setLong(SnapshotHFileCleaner.HFILE_CACHE_REFRESH_PERIOD_CONF_KEY, cacheRefreshPeriod);
   }
 
   @Before
@@ -151,5 +175,90 @@ public class TestSnapshotFromMaster {
     builder.setSnapshot(SnapshotDescription.newBuilder().setName("Not A Snapshot").build());
     SnapshotTestingUtils.expectSnapshotDoneException(master, builder.build(),
       UnknownSnapshotException.class);
+  }
+
+  /**
+   * Test that the snapshot hfile archive cleaner works correctly
+   */
+  @Test
+  public void testSnapshotHFileArchiving() throws Exception {
+    HBaseAdmin admin = UTIL.getHBaseAdmin();
+    // make sure we don't fail on listing snapshots
+    SnapshotTestingUtils.assertNoSnapshots(admin);
+    // load the table
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
+
+    // take a snapshot of the table
+    byte[] snapshotName = Bytes.toBytes("snapshot");
+    admin.snapshot(snapshotName, TABLE_NAME);
+
+    // list the snapshot
+    List<SnapshotDescription> snapshots = SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,
+      snapshotName, TABLE_NAME);
+
+    // make sure we get a compaction
+    List<HRegion> regions = UTIL.getHBaseCluster().getRegions(TABLE_NAME);
+    for (HRegion region : regions) {
+      region.compactStores();
+    }
+
+    // make sure the cleaner has run
+    LOG.debug("Running hfile cleaners");
+    CleanerTestUtils.ensureHFileCleanersRun(UTIL, cacheRefreshPeriod);
+
+    // check that the files in the archive contain the ones that we need for the snapshot
+    Configuration conf = UTIL.getConfiguration();
+    Path rootDir = FSUtils.getRootDir(conf);
+    FileSystem fs = FSUtils.getCurrentFileSystem(conf);
+    // get the snapshot files for the table
+    Path snapshotTable = SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName, rootDir);
+    FileStatus[] snapshotHFiles = SnapshotCleanerChoreUtil.listHFiles(fs, snapshotTable);
+    LOG.debug("Have snapshot hfiles:");
+    for (FileStatus file : snapshotHFiles) {
+      LOG.debug(file.getPath());
+    }
+    // get the archived files for the table
+    Collection<String> files = getArchivedHFiles(conf, rootDir, fs, STRING_TABLE_NAME);
+
+    // and make sure that there is a proper subset
+    for (FileStatus file : snapshotHFiles) {
+      assertTrue("Archived hfiles " + files + " is missing snapshot file:" + file.getPath(),
+        files.contains(Reference.getDeferencedHFileName(file.getPath().getName())));
+    }
+
+    // delete the existing snapshot
+    admin.deleteSnapshot(snapshotName);
+    SnapshotTestingUtils.assertNoSnapshots(admin);
+
+    // make sure that we don't keep around the hfiles that aren't in a snapshot
+    // make sure we wait long enough to refresh the snapshot hfile
+    Thread.sleep(cacheRefreshPeriod + 10);
+    // run the cleaner again
+    LOG.debug("Running hfile cleaners");
+    CleanerTestUtils.ensureHFileCleanersRun(UTIL, cacheRefreshPeriod);
+
+    files = getArchivedHFiles(conf, rootDir, fs, STRING_TABLE_NAME);
+    assertEquals("Still have some hfiles in the archive, when their snapshot has been deleted.", 0,
+      files.size());
+  }
+
+  /**
+   * @return all the HFiles for a given table that have been archived
+   * @throws IOException on expected failure
+   */
+  private final Collection<String> getArchivedHFiles(Configuration conf, Path rootDir,
+      FileSystem fs, String tableName) throws IOException {
+    Path tableArchive = HFileArchiveUtil.getTableArchivePath(conf, new Path(rootDir, tableName));
+    FileStatus[] archivedHFiles = SnapshotCleanerChoreUtil.listHFiles(fs, tableArchive);
+    List<String> files = new ArrayList<String>(archivedHFiles.length);
+    LOG.debug("Have archived hfiles:");
+    for (FileStatus file : archivedHFiles) {
+      LOG.debug(file.getPath());
+      files.add(Reference.getDeferencedHFileName(file.getPath().getName()));
+    }
+    // sort the archived files
+
+    Collections.sort(files);
+    return files;
   }
 }
