@@ -122,12 +122,14 @@ import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
 import org.apache.hadoop.hbase.regionserver.metrics.OperationMetrics;
 import org.apache.hadoop.hbase.regionserver.metrics.RegionMetricsStorage;
 import org.apache.hadoop.hbase.regionserver.metrics.SchemaMetrics;
+import org.apache.hadoop.hbase.regionserver.snapshot.operation.GlobalRegionSnapshotProgressMonitor;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.server.errorhandling.ExceptionCheckable;
 import org.apache.hadoop.hbase.server.snapshot.TakeSnapshotUtils;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.CancelableProgressable;
 import org.apache.hadoop.hbase.util.ClassSize;
@@ -307,6 +309,8 @@ public class HRegion implements HeapSize { // , Writable{
     volatile boolean writesEnabled = true;
     // Set if region is read-only
     volatile boolean readOnly = false;
+    // Set if snapshot is running
+    volatile boolean snapshot = false;
 
     /**
      * Set flags that make this region read-only.
@@ -2489,6 +2493,115 @@ public class HRegion implements HeapSize { // , Writable{
       throw new FailedSanityCheckException(batchMutate[0].getExceptionMsg());
     } else if (batchMutate[0].getOperationStatusCode().equals(OperationStatusCode.BAD_FAMILY)) {
       throw new NoSuchColumnFamilyException(batchMutate[0].getExceptionMsg());
+
+  /**
+   * Start a globally-consistent snapshot on this region.
+   * <p>
+   * Periodically checks to make sure the region hasn't been notified of a failure in the global
+   * snapshot process. If it has, it bails out.
+   * <p>
+   * WriteState.snapshot is set to true and WriteState.writesEnabled is set to false so region
+   * compaction and flush is disabled during the process of snapshot.
+   * @param desc {@link SnapshotDescription} describing the snapshot to take
+   * @param monitor to update/monitor progress on the snapshot
+   * @param failureMonitor check failure of the overall snapshot
+   * @throws IOException if the snapshot could not be made
+   */
+  public void startGloballyConsistentSnapshot(SnapshotDescription desc,
+      GlobalRegionSnapshotProgressMonitor monitor,
+      ExceptionCheckable<HBaseSnapshotException> failureMonitor) throws IOException {
+
+    LOG.debug("Snapshot is started on " + this);
+    MonitoredTask status = TaskMonitor.get().createStatus("Snapshotting " + this);
+
+    // periodically, check for snapshot failures, so we don't waste extra work
+    // for the snapshot and resume as fast as possible
+    try {
+      // 0. lock the region to make sure we don't get anymore writes/close/flush
+      // mid-snapshot.
+      // checkResources();
+      startRegionOperation();
+
+      // Stop updates while we take a snapshot of the current hfiles. We only
+      // have to do this for a moment - Its quick (kinda).
+      MultiVersionConsistencyControl.WriteEntry w = null;
+
+      // locking here ensures a consistent state - this will prevent any concurrent
+      // flushes/compactions from interfering with the region state.
+      status.setStatus("Obtaining lock to block concurrent updates");
+      this.updatesLock.writeLock().lock();
+      // Record the mvcc for all transactions in progress.
+      w = mvcc.beginMemstoreInsert();
+      mvcc.advanceMemstore(w);
+
+      // 0. wait for all in-progress transactions to commit to HLog before
+      // we can start the snapshot. This ensures that anything from the client
+      // that was written before the snapshot makes it into the snapshot. It
+      // won't necesarily be in the HFiles, but will at least make it into the
+      // WAL
+      mvcc.waitForRead(w);
+      String s = "MVCC rolled forward to snapshot write point, "
+          + "now we can proceed with WAL and hfile referencing";
+      status.setStatus(s);
+      LOG.debug(s);
+
+      // 1. make sure we aren't flushing/compacting so we have a consistent view
+      // of the underlying files when we snapshot (assumed that these take a
+      // while, so we need to fail the snapshot immediately).
+      synchronized (writestate) {
+        if (!writestate.flushing && !(writestate.compacting > 0)) {
+          writestate.writesEnabled = false;
+          writestate.snapshot = true;
+        } else {
+          // XXX - make this configurable to wait for a timeout? Right now we
+          // just assume that this is a long operation and we should try
+          // snapshotting again later.
+          LOG.info("NOT performing snapshot for region " + this + ", flushing="
+              + writestate.flushing + ", compacting=" + writestate.compacting);
+          throw new SnapshotCreationException("Region " + this + " is flushing/compacting", desc);
+        }
+      }
+      // tell the monitor that we have reached a stable point
+      monitor.stabilize();
+
+      LOG.debug("Ready to begin snapshotting region files.");
+      // 2. Add references to meta about the store files
+      failureMonitor.failOnError();
+
+    } catch (NotServingRegionException e) {
+      throw new SnapshotCreationException("Requested region was offline", desc);
+    } catch (SnapshotCreationException e) {
+      throw e;
+    }
+    LOG.debug("Region:" + this + " prepared snapshot.");
+  }
+
+  /**
+   * This <b>MUST</b> called after
+   * {@link #startGloballyConsistentSnapshot(SnapshotDescription, GlobalRegionSnapshotProgressMonitor, SnapshotErrorMonitor)}
+   * to unlock the region for writes when the snapshot has completed.
+   * <p>
+   * This can be called mulitple times,
+   */
+  public void finishGlobalSnapshot() {
+    LOG.debug("Finishing snapshot by unlocking resources.");
+    try {
+      this.updatesLock.writeLock().unlock();
+    } catch (IllegalMonitorStateException e) {
+      LOG.debug("Don't own the update lock - snapshot already finished?");
+    }
+    try {
+      this.closeRegionOperation();
+    } catch (IllegalMonitorStateException e) {
+      LOG.debug("Don't own the close operation lock - snapshot already finished?");
+    }
+
+    // unlock the write state, allowing compactions again
+    synchronized (writestate) {
+      writestate.writesEnabled = true;
+      writestate.snapshot = false;
+    }
+  }
 
   /**
    * Complete taking the snapshot on the region. Writes the region info and adds references to the

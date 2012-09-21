@@ -47,7 +47,9 @@ import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.snapshot.SnapshotCleaner;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription.Type;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneRequest;
+import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
 import org.apache.hadoop.hbase.regionserver.snapshot.RegionServerSnapshotHandler;
 import org.apache.hadoop.hbase.server.errorhandling.impl.CheckableFaultInjector;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestratorFactory;
@@ -65,6 +67,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 import com.google.protobuf.ServiceException;
@@ -143,6 +146,86 @@ public class TestSnapshotFromServer {
     } catch (Exception e) {
       // NOOP;
     }
+  }
+  @Test(timeout = 15000)
+  public void testCompactionAfterGlobalSnapshot() throws Exception {
+    // take a global snapshot
+    HBaseAdmin admin = UTIL.getHBaseAdmin();
+    String snapshotName = "testCompactionAfterSnapshot";
+    admin.snapshot(snapshotName, STRING_TABLE_NAME, SnapshotDescription.Type.GLOBAL);
+
+    LOG.debug("--- Finished running snapshot");
+
+    // put some data in the table
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
+    waitForTableToStabilize(TABLE_NAME);
+
+    // then try to force a major compaction on the region
+    HRegion toCompact = UTIL.getHBaseCluster().getRegions(TABLE_NAME).get(0);
+    HStore store = (HStore) toCompact.stores.values().iterator().next();
+    store.forceMajor = true;
+    CompactionRequest cr = store.requestCompaction(Store.PRIORITY_USER);
+    assertTrue("Region didn't compact after snapshot", toCompact.compact(cr));
+
+    // cleanup after the test
+    SnapshotTestingUtils.cleanupSnapshot(admin, snapshotName);
+
+    // make sure we cleanup after ourselves
+    checkSnapshotDirectoryStructure(admin, SnapshotDescription.newBuilder().setName(snapshotName)
+        .build());
+
+    // reset the conf
+    setupConf(UTIL.getConfiguration());
+  }
+
+  @Test(timeout = 15000)
+  public void testFaultInRegionGlobalSnapshot() throws Exception {
+    final HBaseAdmin admin = UTIL.getHBaseAdmin();
+    final String snapshotName = "globalSnapshotWithFault";
+    Callable<Void> runSnapshot = new Callable<Void>() {
+
+      @Override
+      public Void call() throws Exception {
+        admin.snapshot(snapshotName, STRING_TABLE_NAME, SnapshotDescription.Type.GLOBAL);
+        return null;
+      }
+    };
+
+    runSnapshotWithFault(runSnapshot, snapshotName, CONTAINS_HREGION);
+  }
+
+  /**
+   * Test that we can read from a table mid-global snapshot (which blocks writes)
+   * @throws Exception on unexpected failure
+   */
+  @Test(timeout = 20000)
+  public void testNonBlockingReadingInGlobalSnapshot() throws Exception {
+    final String snapshotName = "globalSnapshotWithReads";
+    globalSnapshotWithConcurentOperation(snapshotName, CONCURRENT_READ_OPERATION, true,
+      CONTAINS_HREGION);
+  }
+
+  /**
+   * Run a globally consistent snapshot with a concurrent operation
+   * @param snapshotName name of the snapshot
+   * @param op operation to run while snapshotting
+   * @param loadTable <tt>true</tt> if the table should be loaded with test data before running the
+   *          snapshot
+   * @throws Exception on failure
+   */
+  private void globalSnapshotWithConcurentOperation(final String snapshotName,
+      ConcurrentSnapshotOperation op, boolean loadTable, FaultInjectionPolicy andPolicy)
+      throws Exception {
+    final HBaseAdmin admin = UTIL.getHBaseAdmin();
+    Callable<Void> runSnapshot = new Callable<Void>() {
+
+      @Override
+      public Void call() throws Exception {
+        admin.snapshot(snapshotName, STRING_TABLE_NAME, Type.GLOBAL);
+        return null;
+      }
+    };
+    runSnapshotWithConcurrentOperation(runSnapshot, snapshotName, op, true, true, andPolicy);
   }
 
   private void runSnapshotWithFault(Callable<Void> snapshotRunner, String snapshotName,

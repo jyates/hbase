@@ -31,6 +31,7 @@ import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescriptio
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription.Type;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
+import org.apache.hadoop.hbase.regionserver.snapshot.operation.GlobalSnapshotOperation;
 import org.apache.hadoop.hbase.regionserver.snapshot.operation.SnapshotTaskManager;
 import org.apache.hadoop.hbase.server.Aborting;
 import org.apache.hadoop.hbase.server.commit.ThreePhaseCommit;
@@ -240,7 +241,10 @@ public class RegionServerSnapshotHandler extends Configured implements Abortable
         DistributedThreePhaseCommitErrorDispatcher errorDispatcher = new DistributedThreePhaseCommitErrorDispatcher();
         switch (snapshot.getType()) {
         case GLOBAL:
-          throw new IllegalArgumentException("Unimpememted snapshot type:" + snapshot.getType());
+          return new GlobalSnapshotOperation(errorDispatcher, wakeFrequency, globalSnapshotTimeout,
+              involvedRegions, snapshot, getConf(), taskManager, snapshotErrorMonitorFactory,
+              parent.getFileSystem(),
+              parent.getServerName());
         case TIMESTAMP:
           throw new IllegalArgumentException("Unimpememted snapshot type:" + snapshot.getType());
         default:

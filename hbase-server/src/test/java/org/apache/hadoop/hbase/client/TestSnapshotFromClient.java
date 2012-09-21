@@ -166,6 +166,47 @@ public class TestSnapshotFromClient {
     SnapshotTestingUtils.assertNoSnapshots(admin);
   }
 
+  /**
+   * Basic end-to-end test of globally-consistent snapshots
+   * @throws Exception
+   */
+  @Test(timeout = 10000)
+  public void testGlobalCreateListDestroy() throws Exception {
+    HBaseAdmin admin = UTIL.getHBaseAdmin();
+    // make sure we don't fail on listing snapshots
+    SnapshotTestingUtils.assertNoSnapshots(admin);
+    // load the table so we have some data
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
+    // and wait until everything stabilizes
+    HRegionServer rs = UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+    List<HRegion> onlineRegions = rs.getOnlineRegions(TABLE_NAME);
+    for (HRegion region : onlineRegions) {
+      region.waitForFlushesAndCompactions();
+    }
+    LOG.debug("----- Starting snapshot -----");
+    logFSTree(FSUtils.getRootDir(UTIL.getConfiguration()));
+    String snapshotName = "globalCreateListDestroySnapshot";
+    // test creating the snapshot
+    admin.snapshot(snapshotName, STRING_TABLE_NAME, SnapshotDescription.Type.GLOBAL);
+    logFSTree(new Path(UTIL.getConfiguration().get(HConstants.HBASE_DIR)));
+
+    // list the snapshot
+    List<SnapshotDescription> snapshots = SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,
+      snapshotName, STRING_TABLE_NAME);
+
+    // check the directory structure
+    FileSystem fs = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+    Path rootDir = UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+    SnapshotTestingUtils.confirmSnapshotValid(snapshots.get(0), TABLE_NAME, TEST_FAM, rootDir,
+      admin, fs, true);
+
+    // test that we can delete the snapshot
+    admin.deleteSnapshot(snapshotName);
+
+    // make sure we don't have any snapshots
+    SnapshotTestingUtils.assertNoSnapshots(admin);
+  }
+
   private void logFSTree(Path root) throws IOException {
     LOG.debug("Current file system:");
     logFSTree(root, "|-");
