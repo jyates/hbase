@@ -32,6 +32,7 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
+import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.regionserver.HRegion;
@@ -44,6 +45,7 @@ import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.CorruptedSnapshotException;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.hadoop.hbase.util.FSUtils.DirFilter;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
@@ -315,4 +317,33 @@ public class TakeSnapshotUtils {
     return new Path(snapshotDir, HLogUtil.getHLogDirectoryName(serverName));
   }
 
+  /**
+   * Get all the log files references by a snapshot
+   * @param fs filesystem where the snapshot was taken
+   * @param snapshotDir directory containing the snapshot
+   * @return list of hlogs referenced by the snapshot
+   * @throws IOException if the filesystem cannot be reached
+   */
+  public static List<FileStatus> getSnapshotHLogs(FileSystem fs, Path snapshotDir)
+      throws IOException {
+    List<FileStatus> logs = new ArrayList<FileStatus>();
+    // get the logs directory
+    Path logDir = new Path(snapshotDir, HConstants.HREGION_LOGDIR_NAME);
+    // short circuit if directory got removed
+    if (!fs.exists(logDir)) return logs;
+
+    // get the servers in the logs
+    FileStatus[] servers = FSUtils.listStatus(fs, logDir, new FSUtils.DirFilter(fs));
+    if (servers == null || servers.length == 0) return logs;
+    for (FileStatus serverLogs : servers) {
+      // get the logs for each server
+      FileStatus[] logsFiles = FSUtils.listStatus(fs, serverLogs.getPath(), null);
+      if (logsFiles == null || logsFiles.length == 0) continue;
+      for (FileStatus log : logsFiles) {
+
+        logs.add(log);
+      }
+    }
+    return logs;
+  }
 }

@@ -53,7 +53,8 @@ public class SnapshotDescriptionUtils {
    */
   public static final String SNAPSHOTINFO_FILE = ".snapshotinfo";
 
-  private static final String SNAPSHOT_TMP_DIR = ".tmp";
+  /** Temporary directory under the snapshot directory to store in-progress snapshots */
+  public static final String SNAPSHOT_TMP_DIR = ".tmp";
   // snapshot operation values
   /** Default value if no start time is specified */
   public static final long NO_SNAPSHOT_START_TIME_SPECIFIED = 0;
