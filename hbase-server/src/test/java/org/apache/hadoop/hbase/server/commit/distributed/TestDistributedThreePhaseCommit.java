@@ -170,12 +170,16 @@ public class TestDistributedThreePhaseCommit {
       new Answer<ThreePhaseCommit>() {
         @Override
         public ThreePhaseCommit answer(InvocationOnMock invocation) throws Throwable {
-          int index = i[0];
-          LOG.debug("Taks size:" + cohortTasks.size() + ", getting:" + index);
-          ThreePhaseCommit commit = cohortTasks.get(index);
-          index++;
-          i[0] = index;
-          return commit;
+          // sync around the counter to ensure we can't get multiple calls to the same task
+          synchronized (i) {
+            // get the next task member
+            int index = i[0];
+            LOG.debug("Tasks size:" + cohortTasks.size() + ", getting:" + index);
+            ThreePhaseCommit commit = cohortTasks.get(index);
+            index++;
+            i[0] = index;
+            return commit;
+          }
         }
       });
     
