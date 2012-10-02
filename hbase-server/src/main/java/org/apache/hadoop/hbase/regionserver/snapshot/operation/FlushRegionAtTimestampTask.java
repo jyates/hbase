@@ -47,15 +47,16 @@ public class FlushRegionAtTimestampTask extends RegionSnapshotOperation {
   private final Timer timer;
   private final MonitoredTask status;
   private Pair<Long, Long> idAndStart;
-  private final CountDownLatch swappedStores = new CountDownLatch(1);
+  private final CountDownLatch swappedStores;
 
   public FlushRegionAtTimestampTask(SnapshotDescription snapshot, HRegion region,
-      SnapshotExceptionDispatcher errorMonitor, RegionSnapshotOperationStatus monitor,
-      long wakeFrequency, long splitPoint) {
-    super(snapshot, region, errorMonitor, wakeFrequency, monitor);
+      SnapshotExceptionDispatcher errorMonitor,
+      long wakeFrequency, long splitPoint, CountDownLatch prepared) {
+    super(snapshot, region, errorMonitor, wakeFrequency);
     this.splitPoint = splitPoint;
     timer = new Timer("memstore-snapshot-flusher-timer", true);
     status = TaskMonitor.get().createStatus("Starting timestamp-consistent snapshot" + snapshot);
+    this.swappedStores = prepared;
   }
 
   @Override
@@ -67,11 +68,8 @@ public class FlushRegionAtTimestampTask extends RegionSnapshotOperation {
       public void run() {
         // wait for the stores to be swapped before committing
         try {
-          FlushRegionAtTimestampTask.this.waitForLatch(swappedStores, "snapshot store-swap");
+          FlushRegionAtTimestampTask.this.waitForLatchUninterruptibly(swappedStores, "snapshot store-swap");
         } catch (HBaseSnapshotException e) {
-          // ignore - this will be picked up by the main watcher
-          return;
-        } catch (InterruptedException e) {
           // ignore - this will be picked up by the main watcher
           return;
         } catch (Exception e) {
@@ -109,8 +107,7 @@ public class FlushRegionAtTimestampTask extends RegionSnapshotOperation {
     try {
       LOG.debug("Starting commit of timestamp snapshot.");
       this.region.completeTimestampConsistentSnapshot(getSnapshot(), idAndStart.getFirst(),
-        idAndStart.getSecond(), this.monitor, this, status);
-
+        idAndStart.getSecond(), this.getErrorCheckable(), status);
     } catch (ClassCastException e) {
       // happens if the stores got swapped back prematurely
       throw new SnapshotCreationException(e, this.getSnapshot());

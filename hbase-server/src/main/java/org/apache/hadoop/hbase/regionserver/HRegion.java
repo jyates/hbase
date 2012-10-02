@@ -2646,7 +2646,7 @@ public class HRegion implements HeapSize { // , Writable{
    * @throws IOException if an unexpected error occurs
    */
   public void completeTimestampConsistentSnapshot(final SnapshotDescription snapshot,
-      final long sequenceId, final long startTime, RegionSnapshotOperationStatus progressMonitor,
+      final long sequenceId, final long startTime,
       ExceptionCheckable<HBaseSnapshotException> errorMonitor, MonitoredTask status)
       throws IOException {
     status.setStatus("Snapshot write-splitting completed, obtaining lock to"

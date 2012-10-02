@@ -20,7 +20,6 @@ package org.apache.hadoop.hbase.regionserver.snapshot.operation;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.hadoop.hbase.SmallTests;
@@ -37,17 +36,15 @@ import org.mockito.Mockito;
 public class TestRegionSnapshotOperation {
 
   @Test
-  public void testRunOnlyWaitsForPrepare() throws InterruptedException, IOException {
+  public void testRunOnlyWaitsForPrepare() throws Exception {
     SnapshotDescription snapshot = SnapshotDescription.newBuilder().setName("snapshot").build();
     HRegion region = Mockito.mock(HRegion.class);
     Mockito.when(region.getRegionNameAsString()).thenReturn("Some region");
     SnapshotExceptionDispatcher dispatcher = new SnapshotErrorMonitorFactory()
         .createGenericSnapshotErrorMonitor();
-    RegionSnapshotOperationStatus monitor = new RegionSnapshotOperationStatus(1, 1000);
     final boolean[] commitSnapshot = new boolean[] { false };
     final boolean[] finishSnapshot = new boolean[] { false };
-    RegionSnapshotOperation op = new RegionSnapshotOperation(snapshot, region, dispatcher, 1000,
-        monitor) {
+    RegionSnapshotOperation op = new RegionSnapshotOperation(snapshot, region, dispatcher, 1000) {
 
       @Override
       public void prepare() throws HBaseSnapshotException {
@@ -71,7 +68,7 @@ public class TestRegionSnapshotOperation {
     };
     CountDownLatch prepared = op.getPreparedLatch();
     CountDownLatch committed = op.getCommitFinishedLatch();
-    op.run();
+    op.call();
     assertEquals("prepared latch didn't count down at end of op run", 0, prepared.getCount());
     assertEquals("committed latch counted down unexpectedly", 1, committed.getCount());
     op.getAllowCommitLatch().countDown();

@@ -244,7 +244,7 @@ public abstract class TwoPhaseCommit<L extends TwoPhaseCommitErrorListener<E>, E
       phase = CommitPhase.PRE_COMMIT;
 
       // wait for the commit allowed latch to release
-      waitForLatch(getAllowCommitLatch(), "commit allowed");
+      waitForLatchUninterruptibly(getAllowCommitLatch(), "commit allowed");
       errorMonitor.failOnError();
 
       LOG.debug("'Commit allowed' latch released, running commit step.");
@@ -280,9 +280,20 @@ public abstract class TwoPhaseCommit<L extends TwoPhaseCommitErrorListener<E>, E
    * @param latch latch to wait on
    * @param latchType String description of what the latch does
    * @throws E if the task was failed while waiting
-   * @throws InterruptedException if we are interrupted while waiting for exception
+   * @throws InterruptedException if the current thread is interrupted while waiting
    */
   public void waitForLatch(CountDownLatch latch, String latchType) throws E, InterruptedException {
     ServerThreads.waitForLatch(latch, errorMonitor, wakeFrequency, latchType);
+  }
+
+  /**
+   * Wait for latch to count to zero, ignoring any spurious wake-ups, but waking periodically to
+   * check for errors
+   * @param latch latch to wait on
+   * @param latchType String description of what the latch does
+   * @throws E if the task was failed while waiting
+   */
+  public void waitForLatchUninterruptibly(CountDownLatch latch, String latchType) throws E {
+    ServerThreads.waitForLatchUninterruptibly(latch, errorMonitor, wakeFrequency, latchType);
   }
 }

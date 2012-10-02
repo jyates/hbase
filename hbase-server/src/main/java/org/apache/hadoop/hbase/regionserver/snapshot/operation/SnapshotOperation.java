@@ -19,6 +19,7 @@ package org.apache.hadoop.hbase.regionserver.snapshot.operation;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -66,11 +67,39 @@ public void visit(DistributedThreePhaseCommitErrorDispatcher listener, String me
   protected final FileSystem fs;
   protected final Configuration conf;
 
+  /**
+   * Setup the operation.
+   * @param errorListener listener to check for errors to the running operation
+   * @param wakeFrequency frequency to check for errors while waiting
+   * @param timeout max time (ms) to allow the operation to run before failing due to a timeout
+   * @param regions regions to snapshot
+   * @param snapshot description of the snapshot to take
+   * @param conf configuration to use when configuring subtasks
+   * @param taskManager manager for running snapshot tasks
+   * @param monitorFactory monitor factory to build a snapshot monitor
+   * @param fs {@link FileSystem} on which snapshot files should be written
+   * @param numPrepare number of sub-tasks that are run by the operation during the prepare phase.
+   *          The passed number is subsequently incremented by 1 to account for the current
+   *          operation also calling {@link CountDownLatch#countDown()} on latch from
+   *          {@link #getPreparedLatch()}. Therefore, waiting on should <b>NOT</b> be done within
+   *          {@link #prepare()} unless this increment is taken into account.
+   * @param numAllowCommit number of tasks that are blocking the commit phase from proceeding,
+   *          including external notifications.
+   * @param numCommit number of tasks that are expected during the commit phase.
+   *          {@link #getCommitFinishedLatch()}can be waited on during {@link #commit()} to ensure
+   *          that all tasks have completed.
+   * @param numFinish number of tasks expected to complete during the finish phase.
+   *          {@link #getCompletedLatch()} can be waited on during the {@link #finish()} phase to
+   *          ensure all finish tasks have completed.
+   */
   public SnapshotOperation(DistributedThreePhaseCommitErrorDispatcher errorListener,
       long wakeFrequency, long timeout, List<HRegion> regions, SnapshotDescription snapshot,
       Configuration conf, SnapshotTaskManager taskManager,
-      SnapshotErrorMonitorFactory monitorFactory, FileSystem fs) {
-    super(errorListener, errorListener, wakeFrequency, timeout);
+      SnapshotErrorMonitorFactory monitorFactory, FileSystem fs, int numPrepare,
+      int numAllowCommit, int numCommit,
+      int numFinish) {
+    super(numPrepare + 1, numAllowCommit, numCommit, numFinish, errorListener, errorListener,
+        wakeFrequency, timeout);
     this.snapshot = snapshot;
     this.regions = regions;
     this.taskManager = taskManager;
@@ -86,7 +115,8 @@ public void visit(DistributedThreePhaseCommitErrorDispatcher listener, String me
 
   protected final void submitTableInfoCopy() throws IOException {
     taskManager.submitTask(new TableInfoCopyTask(snapshotErrorListener, snapshot, fs, FSUtils
-        .getRootDir(this.conf)));
+.getRootDir(this.conf)),
+      this.getPreparedLatch());
   }
 
   protected final DistributedCommitException wrapExceptionForSnapshot(Exception e) {

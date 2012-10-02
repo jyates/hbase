@@ -104,12 +104,12 @@ public class OnlineTableSnapshotHandler extends TableSnapshotHandler {
 
     try {
       // wait on the prepared latch to count-down
-      task.waitForLatch(task.getPreparedLatch(), "All servers prepared");
+      task.waitForLatchUninterruptibly(task.getPreparedLatch(), "All servers prepared");
       LOG.debug("All servers have joined the snapshot, starting commit...");
       this.setStatus(GlobalSnapshotStatus.RS_COMMITTING_SNAPSHOT);
 
       // all the regions have prepared, so now wait on commits
-      task.waitForLatch(task.getCommitFinishedLatch(), "All servers committed snapshot");
+      task.waitForLatchUninterruptibly(task.getCommitFinishedLatch(), "All servers committed snapshot");
       this.setStatus(GlobalSnapshotStatus.ALL_RS_FINISHED);
 
       // wait for the snapshot to complete

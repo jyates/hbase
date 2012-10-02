@@ -26,11 +26,9 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.server.commit.TwoPhaseCommit;
 import org.apache.hadoop.hbase.server.errorhandling.ExceptionCheckable;
 import org.apache.hadoop.hbase.server.snapshot.error.LocalSnapshotExceptionDispatcher;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotFailureListener;
 import org.apache.hadoop.hbase.server.snapshot.errorhandling.SnapshotExceptionDispatcher;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
 import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
-import org.apache.hadoop.hbase.util.Threads;
 
 /**
  * Runnable wrapper around the the snapshot operation on a <b>single</b> region so the snapshotting
@@ -46,65 +44,21 @@ import org.apache.hadoop.hbase.util.Threads;
  */
 public abstract class RegionSnapshotOperation extends
     TwoPhaseCommit<LocalSnapshotExceptionDispatcher, HBaseSnapshotException> implements
-    ExceptionCheckable<HBaseSnapshotException>, Runnable {
+    ExceptionCheckable<HBaseSnapshotException> {
   private static final Log LOG = LogFactory.getLog(RegionSnapshotOperation.class);
 
-  SnapshotDescription snapshot;
-
-  private SnapshotFailureListener errorListener;
+  protected final SnapshotDescription snapshot;
   protected final HRegion region;
-  protected final RegionSnapshotOperationStatus monitor;
 
   RegionSnapshotOperation(SnapshotDescription snapshot, HRegion region,
-      SnapshotExceptionDispatcher errorMonitor, long wakeFrequency,
-      RegionSnapshotOperationStatus monitor) {
+      SnapshotExceptionDispatcher errorMonitor, long wakeFrequency) {
     super(errorMonitor, null, wakeFrequency);
     this.region = region;
-    this.monitor = monitor;
     this.snapshot = snapshot;
-    this.errorListener = errorMonitor;
   }
 
   protected SnapshotDescription getSnapshot() {
     return this.snapshot;
-  }
-
-  /**
-   * Start running the snapshot operation on the given region.
-   */
-  @Override
-  public void run() {
-    LOG.debug("Starting snapshot on region:" + this.region);
-    // run the two phase commit
-    Threads
-        .setDaemonThreadRunning(
-          new Thread(new Runnable() {
-            @Override()
-            public void run() {
-              try {
-                RegionSnapshotOperation.this.call();
-              } catch (Exception e) {
-                // just log it - error handling will fail it automatically
-                LOG.error("Failed to complete region snapshot operation", e);
-              }
-            }
-          }),
-          this.snapshot.getType() + "-region-snapshot-operation on "
-              + region.getRegionNameAsString());
-
-    // wait for the snapshot to be prepared before we notify the master
-    try {
-      this.waitForLatch(this.getPreparedLatch(), "Snapshot prepared");
-    } catch (HBaseSnapshotException e) {
-      LOG.error("Got snapshot exception, ignoring because monitor already got notified.", e);
-      return;
-    } catch (InterruptedException e) {
-      LOG.error("Interrupted while running snapshot.");
-      this.errorListener.snapshotFailure(
-        "Interrupted while running snapshot - means server is shutting down, so we need to stop.",
-        snapshot, e);
-    }
-    LOG.debug("Completed snapshot prepare on region:" + this.region);
   }
 
   @Override
@@ -132,7 +86,6 @@ public abstract class RegionSnapshotOperation extends
   @Override
   public final void finish() {
     this.finishSnapshot();
-    this.monitor.getFinishLatch().countDown();
   }
 
   /**

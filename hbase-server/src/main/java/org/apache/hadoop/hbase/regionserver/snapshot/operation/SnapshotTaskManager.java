@@ -18,7 +18,10 @@
 package org.apache.hadoop.hbase.regionserver.snapshot.operation;
 
 import java.io.Closeable;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -31,11 +34,6 @@ import org.apache.hadoop.hbase.DaemonThreadFactory;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.regionserver.snapshot.RegionServerSnapshotHandler;
 import org.apache.hadoop.hbase.server.Aborting;
-import org.apache.hadoop.hbase.server.commit.distributed.DistributedCommitException;
-import org.apache.hadoop.hbase.server.commit.distributed.RemoteExceptionSerializer;
-import org.apache.hadoop.hbase.server.errorhandling.ExceptionCheckable;
-import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
-import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
 
 /**
  * Handle running each of the individual tasks for completing a snapshot on a regionserver.
@@ -50,7 +48,6 @@ public class SnapshotTaskManager implements Closeable, Abortable {
   private final ExecutorCompletionService<Void> taskPool;
   private final ThreadPoolExecutor executor;
   private final Aborting abort = new Aborting();
-  private volatile long outstandingTasks = 0;
 
   public SnapshotTaskManager(Server parent, Configuration conf) {
     // configure the executor service
@@ -68,36 +65,22 @@ public class SnapshotTaskManager implements Closeable, Abortable {
    * Submit a task to the pool. For speed, only 1 caller of this method is allowed, letting us avoid
    * locking to increment the counter
    */
-  protected void submitTask(Runnable task) {
-    this.taskPool.submit(task, null);
-    this.outstandingTasks++;
+  protected void submitTask(final Runnable task, final CountDownLatch completedLatch) {
+    this.submitTask(Executors.callable(task), completedLatch);
   }
 
-  /**
-   * Wait for all of the currently outstanding tasks submitted via {@link #submitTask(Runnable)}
-   * @return <tt>true</tt> on success, <tt>false</tt> otherwise
-   * @throws SnapshotCreationException if the snapshot failed while we were waiting
-   */
-  protected boolean waitForOutstandingTasks(
-      ExceptionCheckable<DistributedCommitException> errorMonitor)
-      throws DistributedCommitException {
-    LOG.debug("Waiting for snapshot to finish.");
-
-    while (outstandingTasks > 0) {
-      try {
-        LOG.debug("Snapshot isn't finished.");
-        errorMonitor.failOnError();
-        // wait for the next task to be completed
-        taskPool.take();
-        outstandingTasks--;
-      } catch (InterruptedException e) {
-        if (abort.isAborted()) throw new DistributedCommitException(
-            "Interrupted and found to be aborted while waiting for tasks!", e);
-        Thread.currentThread().interrupt();
+  protected void submitTask(final Callable<?> task, final CountDownLatch completedLatch) {
+    this.taskPool.submit(new Callable<Void>() {
+      @Override
+      public Void call() throws Exception {
+        try {
+          task.call();
+        } finally {
+          completedLatch.countDown();
+        }
+        return null;
       }
-    }
-    LOG.debug("Snapshot prepare pool completed on regionserver.");
-    return true;
+    });
   }
 
   /**
