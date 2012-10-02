@@ -95,7 +95,4 @@ public class TestSnapshotHFileCleaner {
     // make sure that the file isn't deletable
     assertFalse(cleaner.isFileDeletable(new Path(hfile)));
   }
-
-  @org.junit.Rule
-  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu = new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 }

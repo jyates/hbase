@@ -2512,6 +2512,8 @@ public class HRegion implements HeapSize { // , Writable{
       throw new FailedSanityCheckException(batchMutate[0].getExceptionMsg());
     } else if (batchMutate[0].getOperationStatusCode().equals(OperationStatusCode.BAD_FAMILY)) {
       throw new NoSuchColumnFamilyException(batchMutate[0].getExceptionMsg());
+    }
+  }
 
   /**
    * Complete taking the snapshot on the region. Writes the region info and adds references to the

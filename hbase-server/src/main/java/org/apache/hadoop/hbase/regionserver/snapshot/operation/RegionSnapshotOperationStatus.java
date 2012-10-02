@@ -21,10 +21,10 @@ import java.util.concurrent.CountDownLatch;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hbase.server.ServerThreads;
 import org.apache.hadoop.hbase.server.errorhandling.ExceptionCheckable;
 import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
-import org.apache.hadoop.hbase.util.Threads;
 
 /**
  * Simple helper class to determine if a snapshot is finished or not for a set of regions
@@ -66,7 +66,7 @@ public class RegionSnapshotOperationStatus {
   protected boolean waitOnCondition(CountDownLatch latch,
       ExceptionCheckable<HBaseSnapshotException> failureMonitor, String info) {
     try {
-      Threads.waitForLatch(latch, failureMonitor, wakeFrequency, info);
+      ServerThreads.waitForLatch(latch, failureMonitor, wakeFrequency, info);
     } catch (HBaseSnapshotException e) {
       LOG.warn("Error found while :" + info, e);
       return false;

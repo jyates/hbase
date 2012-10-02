@@ -18,15 +18,15 @@
 package org.apache.hadoop.hbase.server.snapshot.error;
 
 import org.apache.hadoop.hbase.protobuf.generated.DistributedCommitProtos.CommitPhase;
+import org.apache.hadoop.hbase.server.commit.TwoPhaseCommit;
 import org.apache.hadoop.hbase.server.commit.TwoPhaseCommitErrorListener;
-import org.apache.hadoop.hbase.server.commit.TwoPhaseCommitable;
 import org.apache.hadoop.hbase.server.errorhandling.impl.delegate.DelegatingExceptionDispatcher;
 import org.apache.hadoop.hbase.server.snapshot.errorhandling.SnapshotExceptionDispatcher;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
 
 /**
  * Single-use snapshot exception dispatcher for sub-tasks of a snapshot that are
- * {@link TwoPhaseCommitable}.
+ * {@link TwoPhaseCommit}.
  * <p>
  * Handles propagating local and remote exceptions as snapshot failures
  */

@@ -46,7 +46,7 @@ import org.apache.hadoop.hbase.util.Threads;
  */
 public abstract class RegionSnapshotOperation extends
     TwoPhaseCommit<LocalSnapshotExceptionDispatcher, HBaseSnapshotException> implements
-    ExceptionCheckable<HBaseSnapshotException> {
+    ExceptionCheckable<HBaseSnapshotException>, Runnable {
   private static final Log LOG = LogFactory.getLog(RegionSnapshotOperation.class);
 
   SnapshotDescription snapshot;
@@ -81,7 +81,12 @@ public abstract class RegionSnapshotOperation extends
           new Thread(new Runnable() {
             @Override()
             public void run() {
-              RegionSnapshotOperation.this.call();
+              try {
+                RegionSnapshotOperation.this.call();
+              } catch (Exception e) {
+                // just log it - error handling will fail it automatically
+                LOG.error("Failed to complete region snapshot operation", e);
+              }
             }
           }),
           this.snapshot.getType() + "-region-snapshot-operation on "

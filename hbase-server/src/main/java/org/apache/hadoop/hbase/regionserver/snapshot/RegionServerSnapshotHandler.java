@@ -32,6 +32,7 @@ import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescriptio
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.snapshot.operation.SnapshotTaskManager;
+import org.apache.hadoop.hbase.regionserver.snapshot.operation.TimestampSnapshotOperation;
 import org.apache.hadoop.hbase.server.Aborting;
 import org.apache.hadoop.hbase.server.commit.ThreePhaseCommit;
 import org.apache.hadoop.hbase.server.commit.distributed.DistributedCommitException;
