@@ -226,8 +226,8 @@ public class TestSnapshotFromClient {
 
     // check the table info
     HTableDescriptor desc = FSTableDescriptors.getTableDescriptor(fs, rootDir, TABLE_NAME);
-    HTableDescriptor snapshotDesc = FSTableDescriptors.getTableDescriptor(fs, snapshotDir,
-      TABLE_NAME);
+    HTableDescriptor snapshotDesc = FSTableDescriptors.getTableDescriptor(fs,
+      SnapshotDescriptionUtils.getSnapshotDir(rootDir), Bytes.toBytes(snapshotName));
     assertEquals(desc, snapshotDesc);
 
     // check the region snapshot for all the regions

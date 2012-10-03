@@ -140,8 +140,9 @@ public abstract class TableSnapshotHandler extends TableEventHandler implements 
     verifyRegionsInfo(snapshotDir);
 
     // check that the hlogs, if they exist, are valid
-    if (shouldCheckLogs(snapshot.getType()))
-    verifyLogs(snapshotDir);
+    if (shouldCheckLogs(snapshot.getType())) {
+      verifyLogs(snapshotDir);
+    }
   }
 
   /**
@@ -152,7 +153,7 @@ public abstract class TableSnapshotHandler extends TableEventHandler implements 
   private boolean shouldCheckLogs(Type type) {
     // This is better handled in the Type enum via type, but since its PB based, this is the
     // simplest way to handle it
-    return !type.equals(Type.TIMESTAMP_VALUE);
+    return !type.equals(Type.TIMESTAMP);
   }
 
   /**
@@ -172,7 +173,13 @@ public abstract class TableSnapshotHandler extends TableEventHandler implements 
    * @param snapshotDir snapshot directory to check
    */
   private void verifyTableInfo(Path snapshotDir) throws IOException {
-    FSTableDescriptors.getTableDescriptor(fs, snapshotDir);
+    try {
+      FSTableDescriptors.getTableDescriptor(fs, snapshotDir);
+    } catch (IOException e) {
+      LOG.error("Table information not stored in snapshot.");
+      FSUtils.logFileSystemState(fs, snapshotDir, LOG);
+      throw e;
+    }
   }
 
   /**

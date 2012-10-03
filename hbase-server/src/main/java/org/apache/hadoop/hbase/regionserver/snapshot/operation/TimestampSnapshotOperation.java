@@ -45,7 +45,7 @@ public class TimestampSnapshotOperation extends SnapshotOperation {
       Configuration conf, SnapshotTaskManager taskManager,
       SnapshotErrorMonitorFactory monitorFactory, FileSystem fs) {
     super(errorListener, wakeFrequency, timeout, regions, snapshot, conf, taskManager,
-        monitorFactory, fs, regions.size() + 1, regions.size(), 1, 1);
+        monitorFactory, fs, regions.size() + 1, regions.size() + 1, regions.size(), 1);
     // setup write partitioning information for the stores
     long time = snapshot.getCreationTime() - EnvironmentEdgeManager.currentTimeMillis();
     if (time <= 0) {
@@ -70,11 +70,13 @@ public class TimestampSnapshotOperation extends SnapshotOperation {
       // 2. submit each task. When they complete, mark this server as having completed the request
       for (RegionSnapshotOperation op : ops)
         taskManager.submitTask(op, this.getCommitFinishedLatch());
+      LOG.debug("Submitted region swap/flush tasks");
 
       this.snapshotErrorListener.failOnError();
 
       // 3. do the table-info copy async
       submitTableInfoCopy();
+      LOG.debug("Submitted table-info copy task");
     } catch (IOException e) {
       throw wrapExceptionForSnapshot(e);
     } finally {

@@ -22,7 +22,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -56,7 +56,7 @@ public class SnapshotTaskManager implements Closeable, Abortable {
       RegionServerSnapshotHandler.DEFAULT_SNAPSHOT_THREAD_KEEP_ALIVE);
     int threads = conf.getInt(CONCURENT_SNAPSHOT_TASKS_KEY, DEFAULT_CONCURRENT_SNAPSHOT_TASKS);
     executor = new ThreadPoolExecutor(1, threads, keepAlive, TimeUnit.SECONDS,
-        new LinkedBlockingQueue<Runnable>(), new DaemonThreadFactory("rs("
+        new SynchronousQueue<Runnable>(), new DaemonThreadFactory("rs("
             + parent.getServerName().toString() + ")-snapshot-pool"));
     taskPool = new ExecutorCompletionService<Void>(executor);
   }

@@ -114,8 +114,9 @@ public void visit(DistributedThreePhaseCommitErrorDispatcher listener, String me
   }
 
   protected final void submitTableInfoCopy() throws IOException {
-    taskManager.submitTask(new TableInfoCopyTask(snapshotErrorListener, snapshot, fs, FSUtils
-.getRootDir(this.conf)),
+    LOG.debug("Submitting table info copy.");
+    taskManager.submitTask(
+      new TableInfoCopyTask(snapshotErrorListener, snapshot, fs, FSUtils.getRootDir(this.conf)),
       this.getPreparedLatch());
   }
 
