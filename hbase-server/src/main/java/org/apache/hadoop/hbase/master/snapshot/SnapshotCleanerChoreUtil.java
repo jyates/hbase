@@ -113,16 +113,21 @@ public class SnapshotCleanerChoreUtil extends BaseConfigurable implements Stoppa
     LOG.debug("Refreshing file cache.");
     this.fileNameCache.clear();
 
-    Path snapshotRoot = SnapshotDescriptionUtils.getSnapshotRootDir(rootDir);
+    refreshSnapshotCache(SnapshotDescriptionUtils.getSnapshotRootDir(rootDir));
+    refreshSnapshotCache(SnapshotDescriptionUtils.getSnapshotWorkingDir(rootDir));
+  }
+
+  private void refreshSnapshotCache(final Path snapshotRoot) throws IOException {
     FileStatus[] snapshots = FSUtils.listStatus(fs, snapshotRoot, dirFilter);
     if (snapshots == null) return;
+
     try {
       for (FileStatus snapshot : snapshots) {
         if (stopped) throw new IOException("Stopped! Cannot read any more files.");
         parent.loadFiles(this.fs, snapshot, this.fileNameCache);
       }
     } catch (IOException e) {
-      LOG.warn("Failed to refresh hlogs cache for snapshots!", e);
+      LOG.warn("Failed to refresh files cache for snapshotsRoot=" + snapshotRoot, e);
       throw e;
     }
   }
@@ -164,14 +169,14 @@ public class SnapshotCleanerChoreUtil extends BaseConfigurable implements Stoppa
 
     FileStatus[] regionDirs = FSUtils.listStatus(fs, tableDir, dirFilter);
     // if no regions, then we are done
-    if (regionDirs == null || regionDirs.length == 0) return new FileStatus[0];
+    if (regionDirs == null) return new FileStatus[0];
 
     // go through each of the regions, and add al the hfiles under each family
     List<FileStatus> regionFiles = new ArrayList<FileStatus>(regionDirs.length);
     for (FileStatus regionDir : regionDirs) {
       FileStatus[] fams = FSUtils.listStatus(fs, regionDir.getPath(), familyDirectory);
       // if no families, then we are done again
-      if (fams == null || fams.length == 0) continue;
+      if (fams == null) continue;
       // add all the hfiles under the family
       regionFiles.addAll(getHFilesInRegion(fams, fs, fileFilter));
     }
@@ -195,7 +200,7 @@ public class SnapshotCleanerChoreUtil extends BaseConfigurable implements Stoppa
       // get all the hfiles in the family
       FileStatus[] hfiles = FSUtils.listStatus(fs, family.getPath(), fileFilter);
       // if no hfiles, then we are done with this family
-      if (hfiles == null || hfiles.length == 0) continue;
+      if (hfiles == null) continue;
       files.addAll(Arrays.asList(hfiles));
     }
     return files;
