@@ -135,6 +135,16 @@ public class SnapshotDescriptionUtils {
     return new Path(rootDir, HConstants.SNAPSHOT_DIR);
   }
 
+  /**directory to build a snapshot, before it is finalized
+   * Get the snapshot working directory.
+   * The snapshots in-progress are kept under this directory, i.e. ${hbase.rootdir}/.snapshot/.tmp
+   * @param rootDir hbase root directory
+   * @return the base directory in which all in-progress snapshots are kept
+   */
+  public static Path getSnapshotWorkingDir(final Path rootDir) {
+    return new Path(getSnapshotDir(rootDir), SNAPSHOT_TMP_DIR);
+  }
+
   /**
    * Get the directory for a specified snapshot. This directory is a sub-directory of snapshot root
    * directory and all the data files for a snapshot are kept under this directory.
@@ -175,7 +185,27 @@ public class SnapshotDescriptionUtils {
    * @return {@link Path} where one can build a snapshot
    */
   public static Path getWorkingSnapshotDir(SnapshotDescription snapshot, final Path rootDir) {
-    return getSnapshotDir(new Path(getSnapshotDir(rootDir), SNAPSHOT_TMP_DIR), snapshot.getName());
+    return getWorkingSnapshotDir(snapshot.getName(), rootDir);
+  }
+
+  /**
+   * Get the directory to build a snapshot, before it is finalized
+   * @param snapshotName name of the snapshot being taken
+   * @param rootDir root directory of the hbase installation
+   * @return {@link Path} where one can build a snapshot
+   */
+  public static Path getWorkingSnapshotDir(final byte[] snapshotName, final Path rootDir) {
+    return getWorkingSnapshotDir(Bytes.toString(snapshotName), rootDir);
+  }
+
+  /**
+   * Get the directory to build a snapshot, before it is finalized
+   * @param snapshotName name of the snapshot being taken
+   * @param rootDir root directory of the hbase installation
+   * @return {@link Path} where one can build a snapshot
+   */
+  public static Path getWorkingSnapshotDir(final String snapshotName, final Path rootDir) {
+    return getSnapshotDir(getSnapshotWorkingDir(rootDir), snapshotName);
   }
 
   /**
