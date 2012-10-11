@@ -2403,7 +2403,7 @@ Server {
       // For disabled table, snapshot is created by the master
       else if (this.assignmentManager.getZKTable().isDisabledTable(snapshot.getTable())) {
         LOG.debug("Table is disabled, running snapshot entirely on master.");
-        handler = snapshotManager.newDisabledTableSnasphotHandler(snapshot, this);
+        handler = snapshotManager.newDisabledTableSnapshotHandler(snapshot, this);
       } else {
         throw new TablePartiallyOpenException(snapshot.getTable() + " isn't fully open.");
       }
@@ -2529,7 +2529,7 @@ Server {
       // check to see if we are done (throws exception if the snapshot failed)
       if (sentinel.getFinished()) {
         builder.setDone(true);
-        LOG.debug("Snasphot " + snapshot + " has completed, notifying client.");
+        LOG.debug("Snapshot " + snapshot + " has completed, notifying client.");
       } else if (LOG.isDebugEnabled()) {
         LOG.debug("Sentinel isn't finished with snapshot!");
       }

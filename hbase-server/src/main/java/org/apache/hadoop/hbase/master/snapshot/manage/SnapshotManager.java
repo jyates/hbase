@@ -77,7 +77,7 @@ public class SnapshotManager extends Aborting {
     return handler != null && !handler.getFinished();
   }
 
-  public synchronized DisabledTableSnapshotHandler newDisabledTableSnasphotHandler(
+  public synchronized DisabledTableSnapshotHandler newDisabledTableSnapshotHandler(
       SnapshotDescription snapshot, Server parent) throws IOException {
     // Reset the snapshot to be the disabled snapshot
     snapshot = snapshot.toBuilder().setType(Type.DISABLED).build();
