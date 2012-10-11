@@ -125,7 +125,7 @@ public class TestSnapshotManager {
     orchestrator.addErrorListener(orchestrator.genericVisitor, snare);
 
     // create a new handler that we will check for errors
-    TableSnapshotHandler handler = manager.newDisabledTableSnasphotHandler(snapshot, parent);
+    TableSnapshotHandler handler = manager.newDisabledTableSnapshotHandler(snapshot, parent);
     manager.abort("some reason", new Exception("some exception"));
     assertTrue("Snare didn't receive error notification from snapshot manager.",
       handler.checkForError());
