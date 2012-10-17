@@ -106,12 +106,12 @@ public class TestSnapshotManager {
   public void testInProcess() throws KeeperException, SnapshotCreationException {
     SnapshotManager manager = getNewManager();
     SnapshotHandler handler = Mockito.mock(SnapshotHandler.class);
-    assertFalse("Manager is in process when there is no current handler", manager.isInProcess());
+    assertFalse("Manager is in process when there is no current handler", manager.isSnapshotInProcess());
     manager.setSnapshotHandler(handler);
     Mockito.when(handler.getFinished()).thenReturn(false);
-    assertTrue("Manager isn't in process when handler is running", manager.isInProcess());
+    assertTrue("Manager isn't in process when handler is running", manager.isSnapshotInProcess());
     Mockito.when(handler.getFinished()).thenReturn(true);
-    assertFalse("Manager is process when handler isn't running", manager.isInProcess());
+    assertFalse("Manager is process when handler isn't running", manager.isSnapshotInProcess());
   }
 
   @Test
@@ -146,7 +146,7 @@ public class TestSnapshotManager {
     Mockito.verify(pool, Mockito.times(1)).submit(Mockito.any(DisabledTableSnapshotHandler.class));
 
     // pass along the abort notification
-    manager.abort("some reason", new Exception("some exception"));
+    manager.abortSnapshot("some reason", new Exception("some exception"));
     SnapshotHandler handler = manager.getCurrentSnapshotHandler();
     assertNotNull("Snare didn't receive error notification from snapshot manager.",
       handler.getExceptionIfFailed());

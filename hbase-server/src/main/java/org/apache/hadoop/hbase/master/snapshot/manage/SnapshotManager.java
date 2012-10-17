@@ -33,7 +33,6 @@ import org.apache.hadoop.hbase.master.snapshot.DisabledTableSnapshotHandler;
 import org.apache.hadoop.hbase.master.snapshot.MasterSnapshotVerifier;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription.Type;
-import org.apache.hadoop.hbase.server.Aborting;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestrator;
 import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
 import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorMonitorFactory;
@@ -56,7 +55,7 @@ import org.apache.zookeeper.KeeperException;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
-public class SnapshotManager extends Aborting {
+public class SnapshotManager {
   private static final Log LOG = LogFactory.getLog(SnapshotManager.class);
 
   // TODO - enable having multiple snapshots with multiple monitors
@@ -64,7 +63,8 @@ public class SnapshotManager extends Aborting {
   private final MasterServices master;
   private SnapshotErrorMonitorFactory errorFactory;
   private final ExceptionOrchestrator<HBaseSnapshotException> dispatcher;
-  private SnapshotHandler handler;
+  private volatile boolean snapshotAborted;
+  private SnapshotHandler snapshotHandler;
   private ExecutorService pool;
   private final Path rootDir;
 
@@ -81,8 +81,12 @@ public class SnapshotManager extends Aborting {
    * @return <tt>true</tt> if there is a snapshot in process, <tt>false</tt> otherwise
    * @throws SnapshotCreationException if the snapshot failed
    */
-  public boolean isInProcess() throws SnapshotCreationException {
-    return handler != null && !handler.getFinished();
+  public boolean isSnapshotInProcess() throws SnapshotCreationException {
+    return snapshotHandler != null && !snapshotHandler.getFinished();
+  }
+
+  public boolean isSnapshotAborted() {
+    return this.snapshotAborted;
   }
 
   /**
@@ -97,9 +101,9 @@ public class SnapshotManager extends Aborting {
     Path workingDir = SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshot, rootDir);
 
     // make sure we aren't already running a snapshot
-    if (isInProcess()) {
+    if (isSnapshotInProcess()) {
       throw new SnapshotCreationException("Already running another snapshot:"
-          + this.handler.getSnapshot());
+          + this.snapshotHandler.getSnapshot());
     }
 
     try {
@@ -141,7 +145,7 @@ public class SnapshotManager extends Aborting {
     DisabledTableSnapshotHandler handler;
     try {
       handler = new DisabledTableSnapshotHandler(snapshot, parent, this.master, monitor, this);
-      this.handler = handler;
+      this.snapshotHandler = handler;
       this.pool.submit(handler);
     } catch (IOException e) {
       // cleanup the working directory
@@ -163,15 +167,16 @@ public class SnapshotManager extends Aborting {
    * @return the current handler for the snapshot
    */
   public SnapshotHandler getCurrentSnapshotHandler() {
-    return this.handler;
+    return this.snapshotHandler;
   }
 
-  @Override
-  public void abort(String why, Throwable e) {
+  public void abortSnapshot(String why, Throwable e) {
     // short circuit
-    if (this.isAborted()) return;
-    // make sure we get aborted
-    super.abort(why, e);
+    if (this.isSnapshotAborted()) return;
+
+    this.snapshotAborted = true;
+    LOG.warn("Aborting because: " + why, e);
+
     // pass the abort onto all the listeners
     this.dispatcher.receiveError(why, new HBaseSnapshotException(e));
   }
@@ -199,7 +204,7 @@ public class SnapshotManager extends Aborting {
    * <p>
    * Exposed for TESTING.
    */
-  public void reset() {
+  public void resetSnapshot() {
     setSnapshotHandler(null);
   }
 
@@ -210,7 +215,7 @@ public class SnapshotManager extends Aborting {
    * @param handler handler the master should use
    */
   public void setSnapshotHandler(SnapshotHandler handler) {
-    this.handler = handler;
+    this.snapshotHandler = handler;
   }
 
   /**

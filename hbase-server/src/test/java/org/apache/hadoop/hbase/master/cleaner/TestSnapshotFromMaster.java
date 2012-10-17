@@ -133,7 +133,7 @@ public class TestSnapshotFromMaster {
   @Category(MediumTests.class)
   public void testIsDoneContract() throws Exception {
     HMaster master = UTIL.getMiniHBaseCluster().getMaster();
-    master.getSnapshotManager().reset();
+    master.getSnapshotManager().resetSnapshot();
     IsSnapshotDoneRequest.Builder builder = IsSnapshotDoneRequest.newBuilder();
     String snapshotName = "asyncExpectedFailureTest";
 
