@@ -198,6 +198,14 @@ message DeleteSnapshotRequest{
 message DeleteSnapshotResponse{
 }
 
+message RenameSnapshotRequest{
+  required string name = 1;
+  required string newName = 2;
+}
+
+message RenameSnapshotResponse{
+}
+
 message RestoreSnapshotRequest {
   required SnapshotDescription snapshot = 1;
 }
@@ -336,6 +344,11 @@ service MasterAdminService {
    * @return a list of snapshot descriptors
    */
   rpc listSnapshots(ListSnapshotRequest) returns(ListSnapshotResponse);
+
+  /**
+   * Rename a snapshot.
+   */
+  rpc renameSnapshot(RenameSnapshotRequest) returns(RenameSnapshotResponse);
 
   /**
    * Delete an existing snapshot. This method can also be used to clean up a aborted snapshot.

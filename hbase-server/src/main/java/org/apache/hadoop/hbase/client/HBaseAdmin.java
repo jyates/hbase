@@ -93,6 +93,8 @@ import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ModifyTableR
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.MoveRegionRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RestoreSnapshotRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RestoreSnapshotResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RenameSnapshotRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RenameSnapshotResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.SetBalancerRunningRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ShutdownRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.StopMasterRequest;
@@ -2258,6 +2260,37 @@ public class HBaseAdmin implements Abortable, Closeable {
           IsSnapshotDoneRequest.newBuilder().setSnapshot(snapshot).build());
       }
     }).getDone();
+  }
+
+  /**
+   * Rename snapshot
+   * @param snapshotName current snapshot name
+   * @param newSnapshotName new snapshot name
+   */
+  public void renameSnapshot(final byte[] snapshotName, final byte[] newSnapshotName)
+      throws IOException {
+    renameSnapshot(Bytes.toString(snapshotName), Bytes.toString(newSnapshotName));
+  }
+
+  /**
+   * Rename snapshot
+   * @param snapshotName current snapshot name
+   * @param newSnapshotName new snapshot name
+   */
+  public void renameSnapshot(final String snapshotName, final String newSnapshotName)
+      throws IOException {
+    final RenameSnapshotRequest request = RenameSnapshotRequest.newBuilder()
+        .setName(snapshotName)
+        .setNewName(newSnapshotName)
+        .build();
+
+    // run the snapshot restore on the master
+    execute(new MasterAdminCallable<RenameSnapshotResponse>() {
+      @Override
+      public RenameSnapshotResponse call() throws ServiceException {
+        return masterAdmin.renameSnapshot(null, request);
+      }
+    });
   }
 
   /**
