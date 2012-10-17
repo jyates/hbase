@@ -18,6 +18,7 @@
 package org.apache.hadoop.hbase.master.snapshot;
 
 import java.io.IOException;
+import java.util.Collection;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -25,9 +26,9 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.master.cleaner.BaseLogCleanerDelegate;
+import org.apache.hadoop.hbase.snapshot.SnapshotReferenceUtil;
 import org.apache.hadoop.hbase.util.FSUtils;
 
 /**
@@ -67,22 +68,11 @@ public class SnapshotLogCleaner extends BaseLogCleanerDelegate {
       long cacheRefreshPeriod = conf.getLong(
         HLOG_CACHE_REFRESH_PERIOD_CONF_KEY, DEFAULT_HLOG_CACHE_REFRESH_PERIOD);
       final FileSystem fs = FSUtils.getCurrentFileSystem(conf);
-      Path rootDir = FSUtils.getRootDir(conf);
+      final Path rootDir = FSUtils.getRootDir(conf);
       cache = new SnapshotFileCache(fs, rootDir, cacheRefreshPeriod, cacheRefreshPeriod,
-          "snapshot-log-cleaner-cache-refresher", new PathFilter() {
-            @Override
-            public boolean accept(Path path) {
-              if (path.getName().equals(HConstants.HREGION_LOGDIR_NAME)) {
-                try {
-                  if (!fs.isFile(path)) return true;
-                } catch (IOException e) {
-                  LOG.error("Couldn't reach fs to check:" + path + " is a directory, stopping!");
-                  SnapshotLogCleaner.this.stop("Couldn't reach FS to check if " + path
-                      + " was a directory");
-                }
-              }
-
-              return false;
+          "snapshot-log-cleaner-cache-refresher", new SnapshotFileCache.FilesFilter() {
+            public Collection<String> snapshotFiles(final Path snapshotDir) throws IOException {
+              return SnapshotReferenceUtil.getHLogNames(fs, snapshotDir);
             }
           });
     } catch (IOException e) {

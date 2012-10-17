@@ -18,6 +18,7 @@
 package org.apache.hadoop.hbase.master.snapshot;
 
 import java.io.IOException;
+import java.util.Collection;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -26,6 +27,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.master.cleaner.BaseHFileCleanerDelegate;
+import org.apache.hadoop.hbase.snapshot.SnapshotReferenceUtil;
 import org.apache.hadoop.hbase.util.FSUtils;
 
 /**
@@ -64,11 +66,14 @@ public class SnapshotHFileCleaner extends BaseHFileCleanerDelegate {
     try {
       long cacheRefreshPeriod = conf.getLong(HFILE_CACHE_REFRESH_PERIOD_CONF_KEY,
         DEFAULT_HFILE_CACHE_REFRESH_PERIOD);
-      FileSystem fs = FSUtils.getCurrentFileSystem(conf);
-      Path rootDir = FSUtils.getRootDir(conf);
+      final FileSystem fs = FSUtils.getCurrentFileSystem(conf);
+      final Path rootDir = FSUtils.getRootDir(conf);
       cache = new SnapshotFileCache(fs, rootDir, cacheRefreshPeriod, cacheRefreshPeriod,
-          "snapshot-hfile-cleaner-cache-refresher", new FSUtils.RegionDirFilter(fs)
-          );
+          "snapshot-hfile-cleaner-cache-refresher", new SnapshotFileCache.FilesFilter() {
+            public Collection<String> snapshotFiles(final Path snapshotDir) throws IOException {
+              return SnapshotReferenceUtil.getHFileNames(fs, snapshotDir);
+            }
+          });
     } catch (IOException e) {
       LOG.error("Failed to create cleaner util", e);
     }

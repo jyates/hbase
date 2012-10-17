@@ -21,18 +21,19 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.util.Collection;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.server.snapshot.TakeSnapshotUtils;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
+import org.apache.hadoop.hbase.snapshot.SnapshotReferenceUtil;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -158,15 +159,13 @@ public class TestSnapshotFileCache {
     // don't refresh the cache unless we tell it to
     long period = Long.MAX_VALUE;
     Path snapshotDir = SnapshotDescriptionUtils.getSnapshotDir(rootDir);
-    PathFilter filter = new PathFilter() {
 
-      @Override
-      public boolean accept(Path path) {
-        return path.getName().equals(HConstants.HREGION_LOGDIR_NAME);
-      }
-    };
     SnapshotFileCache cache = new SnapshotFileCache(fs, rootDir, period, 10000000,
-        "test-snapshot-file-cache-refresh", filter);
+        "test-snapshot-file-cache-refresh", new SnapshotFileCache.FilesFilter() {
+      public Collection<String> snapshotFiles(final Path snapshotDir) throws IOException {
+        return SnapshotReferenceUtil.getHLogNames(fs, snapshotDir);
+      }
+    });
 
     // create a file in a 'completed' snapshot
     Path snapshot = new Path(snapshotDir, "snapshot");

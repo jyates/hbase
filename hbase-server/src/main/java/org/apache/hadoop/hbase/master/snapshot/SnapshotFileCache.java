@@ -20,7 +20,6 @@ package org.apache.hadoop.hbase.master.snapshot;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.Timer;
@@ -70,11 +69,14 @@ import com.google.common.collect.Multimap;
  * Queries about a given file are thread-safe with respect to multiple queries and cache refreshes.
  */
 public class SnapshotFileCache implements Stoppable {
+  public interface FilesFilter {
+    Collection<String> snapshotFiles(final Path snapshotDir) throws IOException;
+  }
 
   private static final Log LOG = LogFactory.getLog(SnapshotFileCache.class);
   private volatile boolean stop = false;
   private final FileSystem fs;
-  private final PathFilter dirFilter;
+  private final FilesFilter filesFilter;
   private final Path snapshotDir;
   private final Set<String> cache = new HashSet<String>();
   // helper map so we don't need to rescan each snapshot directory if we know about it
@@ -92,13 +94,13 @@ public class SnapshotFileCache implements Stoppable {
    *          hbase root directory
    * @param cacheRefreshPeriod frequency (ms) with which the cache should be refreshed
    * @param refreshThreadName name of the cache refresh thread
-   * @param inspectSnapshotDirectory Filter to apply to the directories under each snapshot.
+   * @param inspectSnapshotFiles Filter to apply to each snapshot to extract the files.
    * @throws IOException if the {@link FileSystem} or root directory cannot be loaded
    */
   public SnapshotFileCache(Configuration conf, long cacheRefreshPeriod, String refreshThreadName,
-      PathFilter inspectSnapshotDirectory) throws IOException {
+      FilesFilter inspectSnapshotFiles) throws IOException {
     this(FSUtils.getCurrentFileSystem(conf), FSUtils.getRootDir(conf), 0, cacheRefreshPeriod,
-        refreshThreadName, inspectSnapshotDirectory);
+        refreshThreadName, inspectSnapshotFiles);
   }
 
   /**
@@ -109,12 +111,12 @@ public class SnapshotFileCache implements Stoppable {
    * @param cacheRefreshPeriod frequency (ms) with which the cache should be refreshed
    * @param cacheRefreshDelay amount of time to wait for the cache to be refreshed
    * @param refreshThreadName name of the cache refresh thread
-   * @param inspectSnapshotDirectory Filter to apply to the directories under each snapshot.
+   * @param inspectSnapshotFiles Filter to apply to each snapshot to extract the files.
    */
   public SnapshotFileCache(FileSystem fs, Path rootDir, long cacheRefreshPeriod,
-      long cacheRefreshDelay, String refreshThreadName, PathFilter inspectSnapshotDirectory) {
+      long cacheRefreshDelay, String refreshThreadName, FilesFilter inspectSnapshotFiles) {
     this.fs = fs;
-    this.dirFilter = inspectSnapshotDirectory;
+    this.filesFilter = inspectSnapshotFiles;
     this.snapshotDir = SnapshotDescriptionUtils.getSnapshotDir(rootDir);
     // periodically refresh the file cache to make sure we aren't superfluously saving files.
     this.refreshTimer = new Timer(refreshThreadName, true);
@@ -194,47 +196,31 @@ public class SnapshotFileCache implements Stoppable {
     // 3.1 iterate through the on-disk snapshots
     for (FileStatus snapshot : snapshots) {
       String name = snapshot.getPath().getName();
+
       // its the tmp dir
       if (name.equals(SnapshotDescriptionUtils.SNAPSHOT_TMP_DIR)) {
         // only add those files to the cache, but not to the known snapshots
         FileStatus[] running = FSUtils.listStatus(fs, snapshot.getPath());
         if (running == null) continue;
         for (FileStatus run : running) {
-          this.cache.addAll(getAllFiles(run, dirFilter));
+          this.cache.addAll(filesFilter.snapshotFiles(run.getPath()));
         }
+      } else {
+        Collection<String> files = this.snapshots.removeAll(name);
+        // 3.1.1if we know about the snapshot already, then keep its files
+        if (files.size() <= 0) {
+          // otherwise we need to look into the files in the snapshot
+          files = filesFilter.snapshotFiles(snapshot.getPath());
+        }
+        // 3.2 add all the files to cache
+        this.cache.addAll(files);
+        known.putAll(name, files);
       }
-
-      Collection<String> files = this.snapshots.removeAll(name);
-      // 3.1.1if we know about the snapshot already, then keep its files
-      if (files.size() <= 0) {
-        // otherwise we need to look into the files in the snapshot
-        files = getAllFiles(snapshot, dirFilter);
-      }
-      // 3.2 add all the files to cache
-      this.cache.addAll(files);
-      known.putAll(name, files);
-      continue;
     }
 
     // 4. set the snapshots we are tracking
     this.snapshots.clear();
     this.snapshots.putAll(known);
-  }
-
-  private Collection<String> getAllFiles(FileStatus file, PathFilter filter) throws IOException {
-    if (!file.isDir()) return Collections.singleton(file.getPath().getName());
-
-    Set<String> ret = new HashSet<String>();
-    // read all the files/directories below the passed directory
-    FileStatus[] files = FSUtils.listStatus(fs, file.getPath(), filter);
-    if (files == null) return ret;
-
-    // get all the files for the children
-    for (FileStatus child : files) {
-      // children aren't filtered out
-      ret.addAll(getAllFiles(child, null));
-    }
-    return ret;
   }
 
   /**
