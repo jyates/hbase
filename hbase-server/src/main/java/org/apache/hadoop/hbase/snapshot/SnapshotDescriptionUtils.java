@@ -18,6 +18,7 @@
 package org.apache.hadoop.hbase.snapshot;
 
 import java.io.IOException;
+import java.io.FileNotFoundException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -320,6 +321,8 @@ public class SnapshotDescriptionUtils {
       } finally {
         if (in != null) in.close();
       }
+    } catch (FileNotFoundException e) {
+      throw new CorruptedSnapshotException("Snapshot " + snapshotInfo + " doesn't exists.", e);
     } catch (IOException e) {
       throw new CorruptedSnapshotException("Couldn't read snapshot info from:" + snapshotInfo, e);
     }
