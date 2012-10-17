@@ -83,12 +83,16 @@ import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteSnapsh
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteTableRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DisableTableRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.EnableTableRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsRestoreSnapshotDoneRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsRestoreSnapshotDoneResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ListSnapshotRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ModifyColumnRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ModifyTableRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.MoveRegionRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RestoreSnapshotRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RestoreSnapshotResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.SetBalancerRunningRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ShutdownRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.StopMasterRequest;
@@ -103,6 +107,7 @@ import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetTableDe
 import org.apache.hadoop.hbase.regionserver.wal.FailedLogCloseException;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.RestoreSnapshotException;
 import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
 import org.apache.hadoop.hbase.snapshot.exception.UnknownSnapshotException;
 import org.apache.hadoop.hbase.util.Addressing;
@@ -2253,6 +2258,196 @@ public class HBaseAdmin implements Abortable, Closeable {
           IsSnapshotDoneRequest.newBuilder().setSnapshot(snapshot).build());
       }
     }).getDone();
+  }
+
+  /**
+   * Restore the specified snapshot on the original table.
+   * Before restoring the table, create a new snapshot with the current table state.
+   *
+   * @param snapshotName name of the snapshot to restore
+   * @throws IOException if a remote or network exception occurs
+   * @throws RestoreSnapshotException if snapshot failed to be restored
+   * @throws IllegalArgumentException if the restore request is formatted incorrectly
+   */
+  public void restoreSnapshot(final byte[] snapshotName)
+      throws IOException, RestoreSnapshotException {
+    restoreSnapshot(Bytes.toString(snapshotName));
+  }
+
+  /**
+   * Restore the specified snapshot on the original table.
+   * Before restoring the table, create a new snapshot with the current table state.
+   *
+   * @param snapshotName name of the snapshot to restore
+   * @throws IOException if a remote or network exception occurs
+   * @throws RestoreSnapshotException if snapshot failed to be restored
+   * @throws IllegalArgumentException if the restore request is formatted incorrectly
+   */
+  public void restoreSnapshot(final String snapshotName)
+      throws IOException, RestoreSnapshotException {
+    String rollbackSnapshot = String.format("%s-%d", snapshotName,
+      EnvironmentEdgeManager.currentTimeMillis());
+
+    String tableName = null;
+    for (SnapshotDescription snapshotInfo: listSnapshots()) {
+      if (snapshotInfo.getName().equals(snapshotName)) {
+        tableName = snapshotInfo.getTable();
+        break;
+      }
+    }
+
+    if (tableName == null) {
+      throw new RestoreSnapshotException(
+        "Unable to find the table name for snapshot=" + snapshotName);
+    }
+
+    // Take a snapshot of the current state
+    snapshot(rollbackSnapshot, tableName);
+
+    // Restore snapshot
+    try {
+      restoreSnapshot(snapshotName, null);
+    } catch (IOException e) {
+      // Try to rollback
+      try {
+        LOG.error("Restore snapshot=" + snapshotName +
+          " failed. Trying to rollback to snapshot=" + rollbackSnapshot, e);
+        restoreSnapshot(rollbackSnapshot, null);
+        throw new RestoreSnapshotException(e);
+      } catch (IOException ex) {
+        LOG.error("Failed to restore and rollback to snapshot=" + rollbackSnapshot, ex);
+        throw new RestoreSnapshotException(
+          "Failed to restore and rollback to snapshot=" + rollbackSnapshot, ex);
+      }
+    }
+  }
+
+  /**
+   * Create a new table by cloning the snapshot content.
+   *
+   * @param snapshotName name of the snapshot to be restored
+   * @param tableName name of the table where the snapshot will be restored
+   * @throws IOException if a remote or network exception occurs
+   * @throws TableExistsException if table to be created already exists
+   * @throws RestoreSnapshotException if snapshot failed to be restored
+   * @throws IllegalArgumentException if the specified table has not a valid name
+   */
+  public void cloneSnapshot(final byte[] snapshotName, final byte[] tableName)
+      throws IOException, TableExistsException, RestoreSnapshotException {
+    cloneSnapshot(Bytes.toString(snapshotName), Bytes.toString(tableName));
+  }
+
+  /**
+   * Create a new table by cloning the snapshot content.
+   *
+   * @param snapshotName name of the snapshot to be restored
+   * @param tableName name of the table where the snapshot will be restored
+   * @throws IOException if a remote or network exception occurs
+   * @throws TableExistsException if table to be created already exists
+   * @throws RestoreSnapshotException if snapshot failed to be restored
+   * @throws IllegalArgumentException if the specified table has not a valid name
+   */
+  public void cloneSnapshot(final String snapshotName, final String tableName)
+      throws IOException, TableExistsException, RestoreSnapshotException {
+    if (tableExists(tableName)) {
+      throw new TableExistsException("Table '" + tableName + " already exists");
+    }
+    restoreSnapshot(snapshotName, tableName);
+  }
+
+  /**
+   * Restore or clone a snapshot.
+   *
+   * @param snapshot snapshot to restore
+   * @param tableName table name to restore the snapshot on
+   * @throws IOException if a remote or network exception occurs
+   * @throws RestoreSnapshotException if snapshot failed to be restored
+   * @throws IllegalArgumentException if the restore request is formatted incorrectly
+   */
+  private void restoreSnapshot(final String snapshotName, final String tableName)
+      throws IOException, RestoreSnapshotException {
+    SnapshotDescription.Builder builder = SnapshotDescription.newBuilder();
+    if (tableName != null) {
+      HTableDescriptor.isLegalTableName(Bytes.toBytes(tableName));
+      builder.setTable(tableName);
+    }
+    builder.setName(snapshotName);
+    restoreSnapshot(builder.build());
+  }
+
+  /**
+   * Restore a snapshot and wait for the server to complete that restore (blocking).
+   *
+   * @param snapshot snapshot to restore
+   * @throws IOException if a remote or network exception occurs
+   * @throws RestoreSnapshotException if snapshot failed to be restored
+   * @throws IllegalArgumentException if the restore request is formatted incorrectly
+   */
+  private void restoreSnapshot(final SnapshotDescription snapshot)
+      throws IOException, RestoreSnapshotException {
+    // actually restore the snapshot
+    RestoreSnapshotResponse response = restoreSnapshotAsync(snapshot);
+
+    final IsRestoreSnapshotDoneRequest request = IsRestoreSnapshotDoneRequest.newBuilder()
+        .setSnapshot(snapshot).build();
+    IsRestoreSnapshotDoneResponse done = IsRestoreSnapshotDoneResponse.newBuilder().buildPartial();
+    long max = response.getExpectedTime();
+    long maxPauseTime = max / this.numRetries;
+    int tries = 0;
+    LOG.debug("Waiting a max of " + max + " ms for snapshot restore to complete. (max " + maxPauseTime
+        + " ms per retry)");
+    long start = EnvironmentEdgeManager.currentTimeMillis();
+    while ((EnvironmentEdgeManager.currentTimeMillis() - start) < max && !done.getDone()) {
+      try {
+        // sleep a backoff <= pauseTime amount
+        long sleep = getPauseTime(tries++);
+        LOG.debug("Found sleep:" + sleep);
+        sleep = sleep > maxPauseTime ? maxPauseTime : sleep;
+        LOG.debug(tries + ") Sleeping: " + sleep + " ms while we wait for snapshot restore to complete.");
+        Thread.sleep(sleep);
+
+      } catch (InterruptedException e) {
+        LOG.debug("Interrupted while waiting for snapshot " + snapshot + " restore to complete");
+        Thread.currentThread().interrupt();
+      }
+      LOG.debug("Getting current status of snapshot restore from master...");
+      done = execute(new MasterAdminCallable<IsRestoreSnapshotDoneResponse>() {
+        @Override
+        public IsRestoreSnapshotDoneResponse call() throws ServiceException {
+          return masterAdmin.isRestoreSnapshotDone(null, request);
+        }
+      });
+    }
+    if (!done.getDone()) {
+      throw new RestoreSnapshotException("Snapshot '" + snapshot.getName()
+          + "' wasn't restored in expectedTime:" + max + " ms");
+    }
+  }
+
+  /**
+   * Restore a snapshot and wait for the server to complete that restore (asynchronous)
+   * <p>
+   * Only a single snapshot should be restored at a time, or results may be undefined.
+   * @param snapshot snapshot to restore
+   * @return response from the server indicating the max time to wait for the snapshot
+   * @throws IOException if a remote or network exception occurs
+   * @throws RestoreSnapshotException if snapshot failed to be restored
+   * @throws IllegalArgumentException if the restore request is formatted incorrectly
+   */
+  private RestoreSnapshotResponse restoreSnapshotAsync(final SnapshotDescription snapshot)
+      throws IOException, RestoreSnapshotException {
+    HTableDescriptor.isLegalTableName(Bytes.toBytes(snapshot.getName()));
+
+    final RestoreSnapshotRequest request = RestoreSnapshotRequest.newBuilder().setSnapshot(snapshot)
+        .build();
+
+    // run the snapshot restore on the master
+    return execute(new MasterAdminCallable<RestoreSnapshotResponse>() {
+      @Override
+      public RestoreSnapshotResponse call() throws ServiceException {
+        return masterAdmin.restoreSnapshot(null, request);
+      }
+    });
   }
 
   /**
