@@ -136,7 +136,7 @@ public class TestSnapshotManager {
     Mockito.when(services.getConfiguration()).thenReturn(UTIL.getConfiguration());
 
     // set our own exception snare too
-    ExceptionOrchestrator<HBaseSnapshotException> orchestrator = manager.getExceptionOrchestrator();
+    ExceptionOrchestrator<HBaseSnapshotException> orchestrator = manager.getExceptionBroadcasterForTesting();
     ExceptionSnare<HBaseSnapshotException> snare = new ExceptionSnare<HBaseSnapshotException>();
     orchestrator.addErrorListener(orchestrator.genericVisitor, snare);
 

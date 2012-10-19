@@ -27,8 +27,9 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.server.snapshot.TakeSnapshotUtils;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
+import org.apache.hadoop.hbase.snapshot.exception.SubtaskFailedSnapshotException;
 import org.apache.hadoop.hbase.util.FSUtils;
 
 /**
@@ -54,7 +55,7 @@ public class ReferenceRegionHFilesTask extends SnapshotTask {
    * @param regionSnapshotDir directory in the snapshot to store region files
    */
   public ReferenceRegionHFilesTask(final SnapshotDescription snapshot,
-      SnapshotErrorListener monitor, Path regionDir, final FileSystem fs, Path regionSnapshotDir) {
+      SnapshotExceptionSnare monitor, Path regionDir, final FileSystem fs, Path regionSnapshotDir) {
     super(snapshot, monitor, "Reference hfiles for region:" + regionDir.getName());
     this.regiondir = regionDir;
     this.fs = fs;
@@ -66,8 +67,9 @@ public class ReferenceRegionHFilesTask extends SnapshotTask {
           return fs.isFile(path);
         } catch (IOException e) {
           LOG.error("Failed to reach fs to check file:" + path + ", marking as not file");
-          ReferenceRegionHFilesTask.this.snapshotFailure("Failed to reach fs to check file status",
-            e);
+          ReferenceRegionHFilesTask.this.errorMonitor
+              .snapshotFailure(new SubtaskFailedSnapshotException(
+                  "Failed to reach fs to check file status", e, snapshot));
           return false;
         }
       }

@@ -21,9 +21,13 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
+
+import javax.management.NotificationListener;
+import javax.management.timer.Timer;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -36,13 +40,13 @@ import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HStore;
-import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogUtil;
-import org.apache.hadoop.hbase.server.errorhandling.ExceptionListener;
-import org.apache.hadoop.hbase.server.errorhandling.OperationAttemptTimer;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotFailureNotificationUtils;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.CorruptedSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.SnapshotTimeoutException;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
 
 import com.google.common.collect.HashMultimap;
@@ -111,18 +115,22 @@ public class TakeSnapshotUtils {
   }
 
   /**
-   * Create a snapshot timer for the master which notifies the monitor when an error occurs
+   * Start running the snapshot timer and setup a timeout notification in future for the configured
+   * timeout for the snapshot on the master.
+   * @param t timer to start and on which to schedule
    * @param snapshot snapshot to monitor
    * @param conf configuration to use when getting the max snapshot life
    * @param monitor monitor to notify when the snapshot life expires
-   * @return the timer to use update to signal the start and end of the snapshot
    */
-  @SuppressWarnings("rawtypes")
-  public static OperationAttemptTimer getMasterTimerAndBindToMonitor(SnapshotDescription snapshot,
-      Configuration conf, ExceptionListener monitor) {
+  public static void startMasterTimerAndBindToMonitor(Timer t, SnapshotDescription snapshot,
+      Configuration conf, NotificationListener monitor) {
     long maxTime = SnapshotDescriptionUtils.getMaxMasterTimeout(conf, snapshot.getType(),
       SnapshotDescriptionUtils.DEFAULT_MAX_WAIT_TIME);
-    return new OperationAttemptTimer(monitor, maxTime, snapshot);
+    t.start();
+    long start = EnvironmentEdgeManager.currentTimeMillis();
+    String msg = "Snapshot timeout! Start time:" + start + ", but max allowed:" + maxTime;
+    t.addNotification(SnapshotFailureNotificationUtils.SnapshotFailureTypes.LOCAL.getType(), msg,
+      new SnapshotTimeoutException(msg, snapshot), new Date(start + maxTime));
   }
 
   /**

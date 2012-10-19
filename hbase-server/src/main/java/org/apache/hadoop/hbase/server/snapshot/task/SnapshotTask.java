@@ -21,49 +21,31 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.server.errorhandling.ExceptionCheckable;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.SubtaskFailedSnapshotException;
 
 /**
  * General snapshot operation taken on a regionserver
  */
-public abstract class SnapshotTask implements ExceptionCheckable<HBaseSnapshotException>, Runnable {
+public abstract class SnapshotTask implements Runnable {
 
   private static final Log LOG = LogFactory.getLog(SnapshotTask.class);
-
-  private final SnapshotErrorListener errorMonitor;
   private final String desc;
 
   protected final SnapshotDescription snapshot;
+  protected final SnapshotExceptionSnare errorMonitor;
 
   /**
    * @param snapshot Description of the snapshot we are going to operate on
    * @param monitor listener interested in failures to the snapshot caused by this operation
    * @param description description of the task being run, for logging
    */
-  public SnapshotTask(SnapshotDescription snapshot, SnapshotErrorListener monitor,
+  public SnapshotTask(SnapshotDescription snapshot, SnapshotExceptionSnare monitor,
       String description) {
     this.snapshot = snapshot;
     this.errorMonitor = monitor;
     this.desc = description;
-  }
-
-  protected final void snapshotFailure(String reason) {
-    this.errorMonitor.snapshotFailure(reason, snapshot);
-  }
-
-  protected final void snapshotFailure(String message, Exception e) {
-    this.errorMonitor.snapshotFailure(message, this.snapshot, e);
-  }
-
-  @Override
-  public void failOnError() throws HBaseSnapshotException {
-    this.errorMonitor.failOnError();
-  }
-
-  @Override
-  public boolean checkForError() {
-    return this.errorMonitor.checkForError();
   }
 
   @Override
@@ -72,7 +54,10 @@ public abstract class SnapshotTask implements ExceptionCheckable<HBaseSnapshotEx
       LOG.debug("Running: " + desc);
       this.process();
     } catch (Exception e) {
-      this.snapshotFailure("Failed to run " + this.desc, e);
+      // pass along the error to the monitor
+      this.errorMonitor
+          .snapshotFailure(e instanceof HBaseSnapshotException ? (HBaseSnapshotException) e
+              : new SubtaskFailedSnapshotException(e, snapshot));
     }
   }
 

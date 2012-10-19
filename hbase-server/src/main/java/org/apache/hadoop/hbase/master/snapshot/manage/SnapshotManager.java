@@ -19,6 +19,8 @@ package org.apache.hadoop.hbase.master.snapshot.manage;
 
 import java.io.IOException;
 
+import javax.management.NotificationBroadcaster;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -35,13 +37,13 @@ import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescriptio
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription.Type;
 import org.apache.hadoop.hbase.server.Aborting;
 import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestrator;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorMonitorFactory;
+import org.apache.hadoop.hbase.server.errorhandling.notification.WeakReferencingNotificationBroadcaster;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotExceptionMonitorFactory;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotExceptionSnare;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotFailureNotificationUtils;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
 import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
-import org.apache.zookeeper.KeeperException;
 
 /**
  * This class monitors the whole process of snapshots via ZooKeeper. There is only one
@@ -62,17 +64,23 @@ public class SnapshotManager extends Aborting {
   // TODO - enable having multiple snapshots with multiple monitors
 
   private final MasterServices master;
-  private SnapshotErrorMonitorFactory errorFactory;
-  private final ExceptionOrchestrator<HBaseSnapshotException> dispatcher;
+  private SnapshotExceptionMonitorFactory factory;
+  private final WeakReferencingNotificationBroadcaster dispatcher;
   private SnapshotHandler handler;
   private ExecutorService pool;
   private final Path rootDir;
 
-  public SnapshotManager(final MasterServices master, final ZooKeeperWatcher watcher,
-      final ExecutorService executorService) throws KeeperException {
+  public SnapshotManager(final MasterServices master,
+      final ExecutorService executorService){
+    this(master, executorService, new SnapshotExceptionMonitorFactory());
+
+  }
+
+  public SnapshotManager(final MasterServices master, final ExecutorService executorService,
+      final SnapshotExceptionMonitorFactory factory) {
     this.master = master;
-    this.errorFactory = new SnapshotErrorMonitorFactory();
-    this.dispatcher = errorFactory.getHub();
+    this.factory = factory;
+    this.dispatcher = factory.getBroadcaster();
     this.pool = executorService;
     this.rootDir = master.getMasterFileSystem().getRootDir();
   }
@@ -137,7 +145,7 @@ public class SnapshotManager extends Aborting {
     snapshot = snapshot.toBuilder().setType(Type.DISABLED).build();
 
     // create a monitor for snapshot errors
-    SnapshotErrorListener monitor = this.errorFactory.createMonitorForSnapshot(snapshot);
+    SnapshotExceptionSnare monitor = this.factory.getNewSnapshotSnare(snapshot);
     DisabledTableSnapshotHandler handler;
     try {
       handler = new DisabledTableSnapshotHandler(snapshot, parent, this.master, monitor, this);
@@ -173,7 +181,8 @@ public class SnapshotManager extends Aborting {
     // make sure we get aborted
     super.abort(why, e);
     // pass the abort onto all the listeners
-    this.dispatcher.receiveError(why, new HBaseSnapshotException(e));
+    this.dispatcher.sendNotification(SnapshotFailureNotificationUtils.mapGlobalSnapshotFailure(
+      this, e));
   }
 
   /**
@@ -218,7 +227,7 @@ public class SnapshotManager extends Aborting {
    * @return the {@link ExceptionOrchestrator} that updates all running {@link MasterSnapshotVerifier}
    *         in the even of a n abort.
    */
-  ExceptionOrchestrator<HBaseSnapshotException> getExceptionOrchestrator() {
+  NotificationBroadcaster getExceptionBroadcasterForTesting() {
     return this.dispatcher;
   }
 }

@@ -20,7 +20,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
@@ -43,7 +43,7 @@ public class TableInfoCopyTask extends SnapshotTask {
    * @param fs {@link FileSystem} where the tableinfo is stored (and where the copy will be written)
    * @param rootDir root of the {@link FileSystem} where the tableinfo is stored
    */
-  public TableInfoCopyTask(SnapshotErrorListener failureListener,
+  public TableInfoCopyTask(SnapshotExceptionSnare failureListener,
       SnapshotDescription snapshot, FileSystem fs, Path rootDir) {
     super(snapshot, failureListener, "Copy table info for table: " + snapshot.getTable());
     this.rootDir = rootDir;
@@ -53,13 +53,13 @@ public class TableInfoCopyTask extends SnapshotTask {
   @Override
   public void process() throws IOException{
     LOG.debug("Running table info copy.");
-      this.failOnError();
+    this.errorMonitor.failOnException();
       LOG.debug("Attempting to copy table info for snapshot:" + this.snapshot);
       // get the HTable descriptor
       HTableDescriptor orig = FSTableDescriptors.getTableDescriptor(fs, rootDir,
         Bytes.toBytes(this.snapshot.getTable()));
 
-      this.failOnError();
+    this.errorMonitor.failOnException();
       // write a copy of descriptor to the snapshot directory
       Path snapshotDir = SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshot, rootDir);
       FSTableDescriptors.createTableDescriptorForTableDirectory(fs, snapshotDir, orig, false);

@@ -29,9 +29,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogUtil;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotExceptionSnare;
 
 /**
  * Copy over each of the files in a region's recovered.edits directory to the region's snapshot
@@ -57,7 +56,7 @@ public class CopyRecoveredEditsTask extends SnapshotTask {
    * @param regionDir directory for the region to examine for edits
    * @param snapshotRegionDir directory for the region in the snapshot
    */
-  public CopyRecoveredEditsTask(SnapshotDescription snapshot, SnapshotErrorListener monitor,
+  public CopyRecoveredEditsTask(SnapshotDescription snapshot, SnapshotExceptionSnare monitor,
       FileSystem fs, Path regionDir, Path snapshotRegionDir) {
     super(snapshot, monitor, "Copy recovered.edits for region:" + regionDir.getName());
     this.fs = fs;
@@ -84,7 +83,7 @@ public class CopyRecoveredEditsTask extends SnapshotTask {
       FileUtil.copy(fs, source, fs, out, true, fs.getConf());
 
       // check for errors to the running operation after each file
-      this.failOnError();
+      this.errorMonitor.failOnException();
     }
   }
 }

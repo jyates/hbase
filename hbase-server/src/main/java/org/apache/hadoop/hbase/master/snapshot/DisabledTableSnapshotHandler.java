@@ -22,6 +22,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import javax.management.timer.Timer;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -33,7 +35,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.catalog.MetaReader;
@@ -43,15 +44,15 @@ import org.apache.hadoop.hbase.master.SnapshotHandler;
 import org.apache.hadoop.hbase.master.snapshot.manage.SnapshotManager;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.regionserver.HRegion;
-import org.apache.hadoop.hbase.server.errorhandling.OperationAttemptTimer;
+import org.apache.hadoop.hbase.server.errorhandling.notification.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.server.snapshot.TakeSnapshotUtils;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotErrorListener;
 import org.apache.hadoop.hbase.server.snapshot.task.CopyRecoveredEditsTask;
 import org.apache.hadoop.hbase.server.snapshot.task.ReferenceRegionHFilesTask;
 import org.apache.hadoop.hbase.server.snapshot.task.ReferenceServerWALsTask;
 import org.apache.hadoop.hbase.server.snapshot.task.TableInfoCopyTask;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.Pair;
@@ -76,13 +77,12 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
   private final Path snapshotDir;
   private final Path workingDir;
 
-  private final Path tableDir;
   private final PathFilter visibleDirFilter;
-  private final OperationAttemptTimer timer;
+  private final Timer timer;
 
   private SnapshotDescription snapshot;
 
-  private SnapshotErrorListener monitor;
+  private SnapshotExceptionSnare monitor;
 
   private MasterSnapshotVerifier verify;
 
@@ -101,7 +101,7 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
    * @throws IOException on unexpected error
    */
   public DisabledTableSnapshotHandler(SnapshotDescription snapshot, Server server,
-      final MasterServices masterServices, SnapshotErrorListener monitor, SnapshotManager manager)
+      final MasterServices masterServices, SnapshotExceptionSnare monitor, SnapshotManager manager)
       throws IOException {
     super(server, EventType.C_M_SNAPSHOT_TABLE);
     this.masterServices = masterServices;
@@ -118,14 +118,13 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
     this.rootDir = FSUtils.getRootDir(this.conf);
     this.snapshotDir = SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot, rootDir);
     this.workingDir = SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshot, rootDir);
-    this.tableDir = HTableDescriptor.getTableDir(this.rootDir, this.tableNameBytes);
     this.visibleDirFilter = new FSUtils.VisibleDirectory(fs);
 
     // prepare the verify
     this.verify = new MasterSnapshotVerifier(masterServices, snapshot, rootDir);
 
     // setup the timer
-    timer = TakeSnapshotUtils.getMasterTimerAndBindToMonitor(snapshot, conf, monitor);
+    timer = new Timer();
   }
 
   // TODO consider parallelizing these operations since they are independent. Right now its just
@@ -134,7 +133,7 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
   public void process() {
     LOG.info("Running table snapshot operation " + eventType + " on table " + tableName);
     try {
-      timer.start();
+      TakeSnapshotUtils.startMasterTimerAndBindToMonitor(timer, snapshot, conf, monitor);
       // write down the snapshot info in the working directory
       SnapshotDescriptionUtils.writeSnasphotInfo(snapshot, workingDir, this.fs);
 
@@ -146,7 +145,7 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
             this.server.getCatalogTracker(), tableNameBytes, true);
         } catch (InterruptedException e) {
           // check to see if we failed, in which case return
-          if (this.monitor.checkForError()) return;
+          if (this.monitor.checkForException()) return;
           // otherwise, just reset the interrupt and keep on going
           Thread.currentThread().interrupt();
         }
@@ -169,16 +168,16 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
           regionInfo.getEncodedName());
         HRegion.writeRegioninfoOnFilesystem(regionInfo, snapshotRegionDir, fs, conf);
         // check for error for each region
-        monitor.failOnError();
+        monitor.failOnException();
 
         // 2.2 for each region, copy over its recovered.edits directory
         Path regionDir = HRegion.getRegionDir(rootDir, regionInfo);
         new CopyRecoveredEditsTask(snapshot, monitor, fs, regionDir, snapshotRegionDir).run();
-        monitor.failOnError();
+        monitor.failOnException();
 
         // 2.3 reference all the files in the region
         new ReferenceRegionHFilesTask(snapshot, monitor, regionDir, fs, snapshotRegionDir).run();
-        monitor.failOnError();
+        monitor.failOnException();
       }
 
       // 3. create references for each of the WAL files each server
@@ -193,7 +192,7 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
             op.run();
           }
 
-          monitor.failOnError();
+          monitor.failOnException();
         }
       }
 
@@ -202,7 +201,7 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
       TableInfoCopyTask tableInfo = new TableInfoCopyTask(this.monitor, snapshot, fs,
           FSUtils.getRootDir(conf));
       tableInfo.run();
-      monitor.failOnError();
+      monitor.failOnException();
 
       // verify the snapshot is valid
       verify.verifySnapshot(this.workingDir, serverNames);
@@ -211,10 +210,10 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
       manager.completeSnapshot(this.snapshotDir, this.workingDir, this.fs);
 
       // mark the operation as complete
-      timer.complete();
+      timer.stop();
     } catch (Exception e) {
       // make sure we capture the exception to propagate back to the client later
-      monitor.snapshotFailure("Failed due to exception:" + e.getMessage(), snapshot, e);
+      monitor.snapshotFailure(new SnapshotCreationException(e, snapshot));
     } finally {
       LOG.debug("Marking snapshot" + this.snapshot + " as finsihed.");
       this.finished = true;
@@ -244,7 +243,7 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
   @Override
   public HBaseSnapshotException getExceptionIfFailed() {
     try {
-      this.monitor.failOnError();
+      monitor.failOnException();
     } catch (HBaseSnapshotException e) {
       return e;
     }
