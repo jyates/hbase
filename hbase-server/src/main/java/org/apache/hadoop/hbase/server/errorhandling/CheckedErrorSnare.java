@@ -17,25 +17,28 @@
  */
 package org.apache.hadoop.hbase.server.errorhandling;
 
-import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
-import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionOrchestrator;
-
 /**
- * Simple visitor interface to update an error listener with an error notification
- * @see ExceptionOrchestrator
- * @param <T> Type of listener to update
+ * An {@link ExceptionSnare} that throws a specific checked exception, rather than a general
+ * {@link Exception} when checking {@link #failOnException()}.
+ * @param <E> type of {@link Exception} to throw
  */
-@InterfaceAudience.Public
-@InterfaceStability.Unstable
-public interface ExceptionVisitor<T> {
+public abstract class CheckedErrorSnare<E extends Exception> extends ExceptionSnare {
+
+  @Override
+  public void failOnException() throws E {
+    try{
+      super.failOnException();
+    } catch (Exception e) {
+      throw this.map(e);
+    }
+  }
 
   /**
-   * Visit the listener with the given error, possibly transforming or ignoring the error
-   * @param listener listener to update
-   * @param message error message
-   * @param e exception that caused the error
-   * @param info general information about the error
+   * Map from the generic error type to the specific error
+   * <p>
+   * Expected to be idemponent.
+   * @param e exception found via {@link #handleNotification(javax.management.Notification, Object)}
+   * @return a specific exception instance from the general {@link Exception}.
    */
-  public void visit(T listener, String message, Exception e, Object... info);
+  protected abstract E map(Exception e);
 }

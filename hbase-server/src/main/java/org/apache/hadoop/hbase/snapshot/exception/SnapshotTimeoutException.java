@@ -15,14 +15,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.server.errorhandling.impl;
+package org.apache.hadoop.hbase.snapshot.exception;
+
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 
 /**
- * Exception thrown from the test
+ * 
  */
-@SuppressWarnings("serial")
-public class ExceptionForTesting extends Exception {
-  public ExceptionForTesting(String msg) {
-    super(msg);
+public class SnapshotTimeoutException extends SnapshotCreationException {
+
+  /**
+   * @param msg
+   * @param snapshot
+   */
+  public SnapshotTimeoutException(String msg, SnapshotDescription snapshot) {
+    super(msg, snapshot);
   }
+
 }

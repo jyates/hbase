@@ -15,18 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.server.errorhandling.exception;
+package org.apache.hadoop.hbase.snapshot.exception;
 
-import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
-import org.apache.hadoop.hbase.server.errorhandling.impl.ExceptionSnare;
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 
 /**
- * Exception when an {@link ExceptionSnare} doens't have an <tt>Exception</tt> when it receives an
- * error.
+ * Exception thrown when there is an unexpected failure to a running snapshot due to some outside
+ * influence.
  */
-@InterfaceAudience.Public
-@InterfaceStability.Evolving
 @SuppressWarnings("serial")
-public class UnknownErrorException extends RuntimeException {
+public class UnexpectedSnapshotFailureException extends HBaseSnapshotException {
+
+  public UnexpectedSnapshotFailureException(String msg, Exception cause,
+      SnapshotDescription snapshot) {
+    super(msg, cause, snapshot);
+  }
+
 }

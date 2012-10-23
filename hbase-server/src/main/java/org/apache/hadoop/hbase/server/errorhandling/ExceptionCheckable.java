@@ -22,23 +22,22 @@ import org.apache.hadoop.classification.InterfaceStability;
 
 /**
  * Check for errors to a given process.
- * @param <E> Type of error that <tt>this</tt> throws if it finds an error
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
-public interface ExceptionCheckable<E extends Exception> {
+public interface ExceptionCheckable {
 
   /**
    * Checks to see if any process to which the exception checker is bound has created an error that
    * would cause a failure.
-   * @throws E if there has been an error, allowing a fail-fast mechanism
+   * @throws Exception if there has been an error, allowing a fail-fast mechanism
    */
-  public void failOnError() throws E;
+  public void failOnException() throws Exception;
 
   /**
-   * Non-exceptional form of {@link #failOnError()}. Checks to see if any process to which the
+   * Non-exceptional form of {@link #failOnException()}. Checks to see if any process to which the
    * exception checkers is bound has created an error that would cause a failure.
    * @return <tt>true</tt> if there has been an error,<tt>false</tt> otherwise
    */
-  public boolean checkForError();
+  public boolean checkForException();
 }

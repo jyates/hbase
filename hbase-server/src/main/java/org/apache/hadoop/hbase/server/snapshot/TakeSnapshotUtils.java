@@ -25,6 +25,9 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
 
+import javax.management.NotificationListener;
+import javax.management.timer.Timer;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -37,10 +40,10 @@ import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescriptio
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.wal.HLogUtil;
-import org.apache.hadoop.hbase.server.errorhandling.ExceptionListener;
-import org.apache.hadoop.hbase.server.errorhandling.OperationAttemptTimer;
+import org.apache.hadoop.hbase.server.errorhandling.notification.TimeoutNotification;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.CorruptedSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.SnapshotTimeoutException;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 
@@ -109,18 +112,20 @@ public class TakeSnapshotUtils {
   }
 
   /**
-   * Create a snapshot timer for the master which notifies the monitor when an error occurs
-   * @param snapshot snapshot to monitor
+   * Start running the snapshot timer and setup a timeout notification in future for the configured
+   * timeout for the snapshot on the master.
+   * @param t timer to start and on which to schedule
    * @param conf configuration to use when getting the max snapshot life
    * @param monitor monitor to notify when the snapshot life expires
-   * @return the timer to use update to signal the start and end of the snapshot
    */
-  @SuppressWarnings("rawtypes")
-  public static OperationAttemptTimer getMasterTimerAndBindToMonitor(SnapshotDescription snapshot,
-      Configuration conf, ExceptionListener monitor) {
+  public static void startMasterTimerAndBindToMonitor(Timer t, SnapshotDescription snapshot,
+      Configuration conf, NotificationListener monitor) {
     long maxTime = SnapshotDescriptionUtils.getMaxMasterTimeout(conf, snapshot.getType(),
       SnapshotDescriptionUtils.DEFAULT_MAX_WAIT_TIME);
-    return new OperationAttemptTimer(monitor, maxTime, snapshot);
+    t.start();
+    String msg = "Snapshot timeout! Max allowed:" + maxTime;
+    new TimeoutNotification.Builder(t).setDuration(maxTime)
+        .setData(new SnapshotTimeoutException(msg, snapshot)).send();
   }
 
   /**

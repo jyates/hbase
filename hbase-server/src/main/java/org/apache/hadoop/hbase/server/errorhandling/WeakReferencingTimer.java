@@ -17,24 +17,23 @@
  */
 package org.apache.hadoop.hbase.server.errorhandling;
 
-import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
+import java.lang.ref.WeakReference;
+
+import javax.management.NotificationFilter;
+import javax.management.NotificationListener;
+import javax.management.timer.Timer;
 
 /**
- * Listen for errors on a process or operation
- * @param <E> Type of exception that is expected
+ * Timer that keeps only a {@link WeakReference} for each {@link NotificationListener} added via
+ * {@link #addNotificationListener(NotificationListener, NotificationFilter, Object)}. If the
+ * {@link NotificationListener} has been garbage collected before the timer can notify the listener,
+ * the notification for that listener is ignored.
  */
-@InterfaceAudience.Private
-@InterfaceStability.Evolving
-public interface ExceptionListener<E extends Exception> {
+public class WeakReferencingTimer extends Timer {
 
-  /**
-   * Receive an error.
-   * <p>
-   * Implementers must ensure that this method is thread-safe.
-   * @param message reason for the error
-   * @param e exception causing the error
-   * @param info general information about the error
-   */
-  public void receiveError(String message, E e, Object... info);
+  @Override
+  public void addNotificationListener(NotificationListener listener, NotificationFilter filter,
+      Object handback) {
+    super.addNotificationListener(new WeakNotificationListener(listener, this), filter, handback);
+  }
 }

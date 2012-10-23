@@ -27,8 +27,10 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.server.snapshot.TakeSnapshotUtils;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotExceptionSnare;
+import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.SubtaskFailedSnapshotException;
 import org.apache.hadoop.hbase.util.FSUtils;
 
 /**
@@ -66,8 +68,9 @@ public class ReferenceRegionHFilesTask extends SnapshotTask {
           return fs.isFile(path);
         } catch (IOException e) {
           LOG.error("Failed to reach fs to check file:" + path + ", marking as not file");
-          ReferenceRegionHFilesTask.this.snapshotFailure("Failed to reach fs to check file status",
-            e);
+          ReferenceRegionHFilesTask.this.errorMonitor
+              .snapshotFailure(new SubtaskFailedSnapshotException(
+              "Failed to reach fs to check file status", e, snapshot));
           return false;
         }
       }
@@ -92,6 +95,9 @@ public class ReferenceRegionHFilesTask extends SnapshotTask {
 
     LOG.debug("Add hfile references to snapshot directories:" + snapshotFamilyDirs);
     for (int i = 0; i < families.length; i++) {
+      // check for an error
+      this.errorMonitor.failOnException();
+
       FileStatus family = families[i];
       Path familyDir = family.getPath();
       // get all the hfiles in the family
@@ -109,6 +115,7 @@ public class ReferenceRegionHFilesTask extends SnapshotTask {
 
       // create a reference for each hfile
       for (FileStatus hfile : hfiles) {
+        this.errorMonitor.failOnException();
         Path referenceFile = new Path(snapshotFamilyDir, hfile.getPath().getName());
         LOG.debug("Creating reference for:" + hfile.getPath() + " at " + referenceFile);
         fs.createNewFile(referenceFile);

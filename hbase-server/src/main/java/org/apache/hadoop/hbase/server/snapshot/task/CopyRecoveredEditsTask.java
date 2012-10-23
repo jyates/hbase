@@ -30,7 +30,7 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.regionserver.wal.HLogUtil;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotExceptionSnare;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionSnare;
 
 /**
  * Copy over each of the files in a region's recovered.edits directory to the region's snapshot
@@ -83,7 +83,7 @@ public class CopyRecoveredEditsTask extends SnapshotTask {
       FileUtil.copy(fs, source, fs, out, true, fs.getConf());
 
       // check for errors to the running operation after each file
-      this.failOnError();
+      this.errorMonitor.failOnException();
     }
   }
 }

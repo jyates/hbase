@@ -27,7 +27,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.regionserver.wal.HLogUtil;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotExceptionSnare;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
 import org.apache.hadoop.hbase.util.FSUtils;
@@ -77,12 +77,9 @@ public class TestCopyRecoveredEditsTask {
     FileStatus file = snapshotEditFiles[0];
     assertEquals("Didn't copy expected file", file1.getName(), file.getPath().getName());
 
-    Mockito.verify(monitor, Mockito.never()).receiveError(Mockito.anyString(),
+    Mockito.verify(monitor, Mockito.never()).snapshotFailure(
       Mockito.any(HBaseSnapshotException.class));
-    Mockito.verify(monitor, Mockito.never()).snapshotFailure(Mockito.anyString(),
-      Mockito.any(SnapshotDescription.class));
-    Mockito.verify(monitor, Mockito.never()).snapshotFailure(Mockito.anyString(),
-      Mockito.any(SnapshotDescription.class), Mockito.any(Exception.class));
+
     // cleanup the working directory
     FSUtils.delete(fs, regionDir, true);
     FSUtils.delete(fs, workingDir, true);

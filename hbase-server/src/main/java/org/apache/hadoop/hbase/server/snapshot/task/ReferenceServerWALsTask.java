@@ -29,8 +29,8 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.server.snapshot.TakeSnapshotUtils;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.util.FSUtils;
 
@@ -80,7 +80,7 @@ public class ReferenceServerWALsTask extends SnapshotTask {
         + Arrays.toString(serverLogs));
 
     for (FileStatus file : serverLogs) {
-      this.failOnError();
+      this.errorMonitor.failOnException();
 
       // TODO - switch to using MonitoredTask
       // add the reference to the file

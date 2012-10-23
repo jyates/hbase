@@ -19,7 +19,8 @@ package org.apache.hadoop.hbase.server.snapshot.task;
 
 import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotExceptionSnare;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionSnare;
+import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
@@ -45,8 +46,8 @@ public class TestSnapshotTask {
     };
     fail.run();
 
-    Mockito.verify(error, Mockito.times(1)).snapshotFailure(Mockito.anyString(),
-      Mockito.eq(snapshot), Mockito.eq(thrown));
+    Mockito.verify(error, Mockito.times(1)).snapshotFailure(
+      Mockito.any(HBaseSnapshotException.class));
   }
 
 }

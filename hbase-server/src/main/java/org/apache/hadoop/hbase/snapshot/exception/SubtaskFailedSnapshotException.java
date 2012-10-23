@@ -15,23 +15,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.server.errorhandling.impl;
+package org.apache.hadoop.hbase.snapshot.exception;
 
-import org.apache.hadoop.hbase.server.errorhandling.ExceptionListener;
+import java.io.IOException;
+
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 
 /**
- * Simple error listener that can be checked to see if it received an error ({@link #error}) and the
- * information about the error received ({@link #info}).
+ * 
  */
-@SuppressWarnings("javadoc")
-public class SimpleErrorListener<E extends Exception> implements ExceptionListener<E> {
+public class SubtaskFailedSnapshotException extends SnapshotCreationException {
 
-  public boolean error = false;
-  public Object[] info = null;
-
-  @Override
-  public void receiveError(String message, Exception e, Object... info) {
-    this.error = true;
-    this.info = info;
+  /**
+   * @param string
+   * @param e
+   * @param snapshot
+   */
+  public SubtaskFailedSnapshotException(String msg, Exception e, SnapshotDescription snapshot) {
+    super(msg, e, snapshot);
   }
+
 }

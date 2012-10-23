@@ -20,18 +20,18 @@ package org.apache.hadoop.hbase.server.snapshot.task;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.server.errorhandling.ExceptionCheckable;
-import org.apache.hadoop.hbase.server.snapshot.error.SnapshotExceptionSnare;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
+import org.apache.hadoop.hbase.snapshot.exception.SubtaskFailedSnapshotException;
 
 /**
  * General snapshot operation taken on a regionserver
  */
-public abstract class SnapshotTask implements ExceptionCheckable<HBaseSnapshotException>, Runnable {
+public abstract class SnapshotTask implements Runnable {
 
   private static final Log LOG = LogFactory.getLog(SnapshotTask.class);
 
-  private final SnapshotExceptionSnare errorMonitor;
+  protected final SnapshotExceptionSnare errorMonitor;
   private final String desc;
 
   protected final SnapshotDescription snapshot;
@@ -48,27 +48,17 @@ public abstract class SnapshotTask implements ExceptionCheckable<HBaseSnapshotEx
     this.desc = description;
   }
 
-  protected final void snapshotFailure(String message, Exception e) {
-    this.errorMonitor.snapshotFailure(message, this.snapshot, e);
-  }
-
-  @Override
-  public void failOnError() throws HBaseSnapshotException {
-    this.errorMonitor.failOnError();
-  }
-
-  @Override
-  public boolean checkForError() {
-    return this.errorMonitor.checkForError();
-  }
-
   @Override
   public void run() {
     try {
       LOG.debug("Running: " + desc);
       this.process();
     } catch (Exception e) {
-      this.snapshotFailure("Failed to run " + this.desc, e);
+      // pass along the error to the monitor
+      this.errorMonitor
+          .snapshotFailure(e instanceof HBaseSnapshotException ? (HBaseSnapshotException) e
+              : new SubtaskFailedSnapshotException("Task failed with uncaught exception", e,
+                  snapshot));
     }
   }
 

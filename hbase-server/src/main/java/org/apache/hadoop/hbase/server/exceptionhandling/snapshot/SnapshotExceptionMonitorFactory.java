@@ -15,27 +15,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.server.snapshot.error;
+package org.apache.hadoop.hbase.server.exceptionhandling.snapshot;
 
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+import org.apache.hadoop.hbase.server.errorhandling.WeakReferencingNotificationBroadcasterSupport;
 
 /**
- * Generic running snapshot failure listener
+ * Factory to build exception monitors for a snapshot.
+ * <p>
  */
-public interface SnapshotFailureListener {
+public class SnapshotExceptionMonitorFactory {
 
-  /**
-   * Notification that a given snapshot failed because of an error on the local server
-   * @param snapshot snapshot that failed
-   * @param reason explanation of why the snapshot failed
-   */
-  public void snapshotFailure(String reason, SnapshotDescription snapshot);
+  private WeakReferencingNotificationBroadcasterSupport broadcaster = new WeakReferencingNotificationBroadcasterSupport();
 
-  /**
-   * Notification that a given snapshot failed because of an error on the local server
-   * @param reason reason the snapshot failed
-   * @param snapshot the snapshot that failed
-   * @param t the exception that caused the failure
-   */
-  public void snapshotFailure(String reason, SnapshotDescription snapshot, Exception t);
+  public SnapshotExceptionSnare getNewSnapshotSnare(SnapshotDescription snapshot) {
+    SnapshotExceptionSnare snare = new SnapshotExceptionSnare(snapshot);
+    // snares have no filter - all errors are accepted
+    this.broadcaster.addNotificationListener(snare, null, null);
+    return snare;
+  }
+
+  public WeakReferencingNotificationBroadcasterSupport getBroadcaster() {
+    return this.broadcaster;
+  }
 }

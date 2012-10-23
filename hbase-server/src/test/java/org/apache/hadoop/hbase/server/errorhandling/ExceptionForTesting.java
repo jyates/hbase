@@ -17,36 +17,12 @@
  */
 package org.apache.hadoop.hbase.server.errorhandling;
 
-import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
-
 /**
- * Base class for an object with a name.
+ * Exception thrown from the test
  */
-@InterfaceAudience.Private
-@InterfaceStability.Evolving
-public class Name {
-
-  private String name;
-
-  public Name(String name) {
-    this.name = name;
-  }
-
-  public void setName(String name) {
-    this.name = name;
-  }
-
-  /**
-   * Get the name of the class that should be used for logging
-   * @return {@link String} prefix for logging
-   */
-  public String getNamePrefixForLog() {
-    return name != null ? "(" + name + ")" : "";
-  }
-
-  @Override
-  public String toString() {
-    return this.name;
+@SuppressWarnings("serial")
+public class ExceptionForTesting extends Exception {
+  public ExceptionForTesting(String msg) {
+    super(msg);
   }
 }

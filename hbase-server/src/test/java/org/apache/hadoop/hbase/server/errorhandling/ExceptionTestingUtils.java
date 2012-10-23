@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.server.errorhandling.impl;
+package org.apache.hadoop.hbase.server.errorhandling;
 
 /**
  * Utility class for testing error propagation
