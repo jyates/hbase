@@ -38,6 +38,12 @@ public class Notifications {
    */
   public static final String HBASE_ABORT_KEY = "hbase.abort";
 
+  /**
+   * Notification type key for stop notifications. See {@link StopNotification} for helpers to
+   * send/watch these notifications
+   */
+  public static final String HBASE_STOP_KEY = "hbase.stop";
+
   public static void addNotificationListener(NotificationBroadcaster caster, NotificationWatcher watcher){
     caster.addNotificationListener(watcher, watcher, null);
   }

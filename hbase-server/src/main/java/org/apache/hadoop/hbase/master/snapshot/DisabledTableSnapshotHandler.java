@@ -89,14 +89,14 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
    * @throws IOException on unexpected error
    */
   public DisabledTableSnapshotHandler(SnapshotDescription snapshot, Server server,
-      final MasterServices masterServices)
+      final MasterServices masterServices, final SnapshotExceptionSnare monitor)
       throws IOException {
     super(server, EventType.C_M_SNAPSHOT_TABLE);
     this.masterServices = masterServices;
     this.tableName = snapshot.getTable();
 
     this.snapshot = snapshot;
-    this.monitor = new SnapshotExceptionSnare(snapshot);
+    this.monitor = monitor;
 
     this.conf = this.masterServices.getConfiguration();
     this.fs = this.masterServices.getMasterFileSystem().getFileSystem();
@@ -118,7 +118,9 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
   public void process() {
     LOG.info("Running table snapshot operation " + eventType + " on table " + tableName);
     try {
+      // start the timer
       TakeSnapshotUtils.startMasterTimerAndBindToMonitor(timer, snapshot, conf, monitor);
+
       // write down the snapshot info in the working directory
       SnapshotDescriptionUtils.writeSnasphotInfo(snapshot, workingDir, this.fs);
 
@@ -221,7 +223,6 @@ public class DisabledTableSnapshotHandler extends EventHandler implements Snapsh
     // should be used.
     this.monitor.snapshotFailure(new SnapshotCreationException(
         "Failing snapshot because server is stopping.", snapshot));
-
   }
 
   @Override

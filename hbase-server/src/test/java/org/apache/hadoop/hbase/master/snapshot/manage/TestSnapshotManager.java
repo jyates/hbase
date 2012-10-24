@@ -18,7 +18,6 @@
 package org.apache.hadoop.hbase.master.snapshot.manage;
 
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -30,6 +29,7 @@ import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.master.MasterFileSystem;
@@ -72,7 +72,7 @@ public class TestSnapshotManager {
     Mockito.when(services.getMasterFileSystem()).thenReturn(mfs);
     Mockito.when(mfs.getFileSystem()).thenReturn(fs);
     Mockito.when(mfs.getRootDir()).thenReturn(UTIL.getDataTestDir());
-    return new SnapshotManager(services, watcher, pool);
+    return new SnapshotManager(services, pool);
   }
 
 
@@ -90,13 +90,11 @@ public class TestSnapshotManager {
   }
 
   /**
-   * Test that we stop the running distabled table snapshot by passing along an error to the error
-   * handler.
+   * Test that we stop the running distabled table snapshot by passing along a stop notification
    * @throws Exception
    */
   @Test
   public void testStopPropagation() throws Exception {
-    // create a new orchestrator and hook up a listener
     SnapshotManager manager = getNewManager();
     FSUtils.setRootDir(UTIL.getConfiguration(), UTIL.getDataTestDir());
 
@@ -104,6 +102,8 @@ public class TestSnapshotManager {
     String tableName = "some table";
     SnapshotDescription snapshot = SnapshotDescription.newBuilder().setName("testAbort")
         .setTable(tableName).build();
+
+    // setup the mocking for the snapshot handler
     Server parent = Mockito.mock(Server.class);
     Mockito.when(parent.getConfiguration()).thenReturn(UTIL.getConfiguration());
     TableDescriptors tables = Mockito.mock(TableDescriptors.class);
@@ -123,7 +123,6 @@ public class TestSnapshotManager {
     // pass along the stop notification
     manager.stop("stopping for test");
     SnapshotHandler handler = manager.getCurrentSnapshotHandler();
-    assertNotNull("Snare didn't receive error notification from snapshot manager.",
-      handler.getExceptionIfFailed());
+    assertTrue("Handler wasn't stopped.", ((Stoppable) handler).isStopped());
   }
 }

@@ -33,6 +33,10 @@ import org.apache.hadoop.hbase.Abortable;
  */
 public class AbortNotification {
 
+  private AbortNotification() {
+    // private ctor fo utility class
+  }
+
   /**
    * Builder for abort notifications. This is a helper to the {@link Abortable} interface
    * <p>

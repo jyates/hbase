@@ -33,11 +33,14 @@ import org.apache.hadoop.hbase.master.SnapshotHandler;
 import org.apache.hadoop.hbase.master.snapshot.DisabledTableSnapshotHandler;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription.Type;
+import org.apache.hadoop.hbase.server.errorhandling.WeakReferencingNotificationBroadcasterSupport;
+import org.apache.hadoop.hbase.server.errorhandling.notification.Notifications;
+import org.apache.hadoop.hbase.server.errorhandling.notification.StopNotification;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionMonitorFactory;
+import org.apache.hadoop.hbase.server.exceptionhandling.snapshot.SnapshotExceptionSnare;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.exception.HBaseSnapshotException;
 import org.apache.hadoop.hbase.snapshot.exception.SnapshotCreationException;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
-import org.apache.zookeeper.KeeperException;
 
 /**
  * This class monitors the whole process of snapshots via ZooKeeper. There is only one
@@ -57,6 +60,9 @@ public class SnapshotManager implements Stoppable {
 
   // TODO - enable having multiple snapshots with multiple monitors
 
+  private SnapshotExceptionMonitorFactory factory;
+  private final WeakReferencingNotificationBroadcasterSupport dispatcher;
+
   private final MasterServices master;
   private SnapshotHandler handler;
   private ExecutorService pool;
@@ -64,9 +70,15 @@ public class SnapshotManager implements Stoppable {
 
   private boolean stopped;
 
-  public SnapshotManager(final MasterServices master, final ZooKeeperWatcher watcher,
-      final ExecutorService executorService) throws KeeperException {
+  public SnapshotManager(final MasterServices master, final ExecutorService executorService) {
+    this(master, executorService, new SnapshotExceptionMonitorFactory());
+  }
+
+  public SnapshotManager(final MasterServices master, final ExecutorService executorService,
+      final SnapshotExceptionMonitorFactory factory) {
     this.master = master;
+    this.factory = factory;
+    this.dispatcher = factory.getBroadcaster();
     this.pool = executorService;
     this.rootDir = master.getMasterFileSystem().getRootDir();
   }
@@ -132,8 +144,12 @@ public class SnapshotManager implements Stoppable {
 
     DisabledTableSnapshotHandler handler;
     try {
-      handler = new DisabledTableSnapshotHandler(snapshot, parent, this.master);
+      SnapshotExceptionSnare monitor = this.factory.getNewSnapshotSnare(snapshot);
+      handler = new DisabledTableSnapshotHandler(snapshot, parent, this.master, monitor);
       this.handler = handler;
+      // have the handler listen for stop events
+      Notifications.addNotificationListener(dispatcher, new StopNotification.Stopper(handler));
+      // run the handler
       this.pool.submit(handler);
     } catch (IOException e) {
       // cleanup the working directory
@@ -165,7 +181,7 @@ public class SnapshotManager implements Stoppable {
     // make sure we get stop
     this.stopped = true;
     // pass the stop onto all the listeners
-    if (this.handler != null) this.handler.stop(why);
+    new StopNotification.Builder(dispatcher).setMessage(why).setSource(this).send();
   }
 
   @Override
@@ -190,5 +206,13 @@ public class SnapshotManager implements Stoppable {
    */
   public void setSnapshotHandlerForTesting(SnapshotHandler handler) {
     this.handler = handler;
+  }
+
+  /**
+   * Exposed for TESTING
+   * @return get the current error broadcaster.
+   */
+  WeakReferencingNotificationBroadcasterSupport getExceptionBroadcasterForTesting() {
+    return this.dispatcher;
   }
 }
