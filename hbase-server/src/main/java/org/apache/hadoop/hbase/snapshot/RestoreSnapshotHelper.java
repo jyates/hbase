@@ -38,6 +38,7 @@ import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.backup.HFileArchiver;
+import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.errorhandling.ForeignExceptionDispatcher;
@@ -110,11 +111,13 @@ public class RestoreSnapshotHelper {
   private final Configuration conf;
   private final FileSystem fs;
 
+  private MonitoredTask status;
+
   public RestoreSnapshotHelper(final Configuration conf, final FileSystem fs,
       final CatalogTracker catalogTracker,
       final SnapshotDescription snapshotDescription, final Path snapshotDir,
       final HTableDescriptor tableDescriptor, final Path tableDir,
-      final ForeignExceptionDispatcher monitor)
+      final ForeignExceptionDispatcher monitor,final MonitoredTask status)
   {
     this.fs = fs;
     this.conf = conf;
@@ -124,6 +127,7 @@ public class RestoreSnapshotHelper {
     this.tableDesc = tableDescriptor;
     this.tableDir = tableDir;
     this.monitor = monitor;
+    this.status = status;
   }
 
   /**
@@ -161,10 +165,13 @@ public class RestoreSnapshotHelper {
 
       // Restore regions using the snapshot data
       monitor.rethrowException();
+      status.setStatus("Restoring table regions...");
       restoreRegions(regionsToRestore);
+      status.setStatus("Finished restoring all table regions.");
 
       // Remove regions from the current table
       monitor.rethrowException();
+      status.setStatus("Starting to delete excess regions from table");
       ModifyRegionUtils.deleteRegions(fs, catalogTracker, regionsToRemove);
     }
 
@@ -181,11 +188,14 @@ public class RestoreSnapshotHelper {
 
       // Create new regions cloning from the snapshot
       monitor.rethrowException();
+      status.setStatus("Cloning regions...");
       cloneRegions(regionsToAdd);
+      status.setStatus("Finished cloning regions.");
     }
 
     // Restore WALs
     monitor.rethrowException();
+    status.setStatus("Restoring WALs to table...");
     restoreWALs();
   }
 

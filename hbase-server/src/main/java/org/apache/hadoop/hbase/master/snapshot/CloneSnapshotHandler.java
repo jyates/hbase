@@ -38,6 +38,8 @@ import org.apache.hadoop.hbase.errorhandling.ForeignExceptionDispatcher;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.SnapshotSentinel;
 import org.apache.hadoop.hbase.master.handler.CreateTableHandler;
+import org.apache.hadoop.hbase.monitoring.MonitoredTask;
+import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
 import org.apache.hadoop.hbase.snapshot.RestoreSnapshotException;
 import org.apache.hadoop.hbase.snapshot.RestoreSnapshotHelper;
@@ -62,6 +64,8 @@ public class CloneSnapshotHandler extends CreateTableHandler implements Snapshot
 
   private volatile boolean stopped = false;
 
+  private MonitoredTask status;
+
   public CloneSnapshotHandler(final MasterServices masterServices,
       final SnapshotDescription snapshot, final HTableDescriptor hTableDescriptor)
       throws NotAllMetaRegionsOnlineException, TableExistsException, IOException {
@@ -74,10 +78,13 @@ public class CloneSnapshotHandler extends CreateTableHandler implements Snapshot
 
     // Monitor
     this.monitor = new ForeignExceptionDispatcher();
+    this.status = TaskMonitor.get().createStatus("Cloning  snapshot '" + snapshot.getName() + "' to table "
+      + hTableDescriptor.getNameAsString());
   }
 
   @Override
   protected List<HRegionInfo> handleCreateRegions(String tableName) throws IOException {
+    status.setStatus("Creating regions for table: " + tableName);
     FileSystem fs = fileSystemManager.getFileSystem();
     Path rootDir = fileSystemManager.getRootDir();
     Path tableDir = HTableDescriptor.getTableDir(rootDir, Bytes.toBytes(tableName));
@@ -85,17 +92,21 @@ public class CloneSnapshotHandler extends CreateTableHandler implements Snapshot
     try {
       // Execute the Clone
       Path snapshotDir = SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot, rootDir);
-      RestoreSnapshotHelper restoreHelper = new RestoreSnapshotHelper(conf, fs,
-          catalogTracker, snapshot, snapshotDir, hTableDescriptor, tableDir, monitor);
+      RestoreSnapshotHelper restoreHelper = new RestoreSnapshotHelper(conf, fs, catalogTracker,
+          snapshot, snapshotDir, hTableDescriptor, tableDir, monitor, status);
       restoreHelper.restore();
 
       // At this point the clone is complete. Next step is enabling the table.
-      LOG.info("Clone snapshot=" + snapshot.getName() + " on table=" + tableName + " completed!");
+      String msg = "Clone snapshot=" + snapshot.getName() + " on table=" + tableName
+          + " completed!";
+      status.setStatus(msg + " Waiting to table enabling...");
+      LOG.info(msg);
 
       return MetaReader.getTableRegions(catalogTracker, Bytes.toBytes(tableName));
     } catch (Exception e) {
-      String msg = "clone snapshot=" + snapshot + " failed";
+      String msg = "clone snapshot=" + snapshot + " failed because " + e.getMessage();
       LOG.error(msg, e);
+      status.abort(msg);
       IOException rse = new RestoreSnapshotException(msg, e);
 
       // these handlers aren't futures so we need to register the error here.
@@ -120,7 +131,9 @@ public class CloneSnapshotHandler extends CreateTableHandler implements Snapshot
   public void cancel(String why) {
     if (this.stopped) return;
     this.stopped = true;
-    LOG.info("Stopping clone snapshot=" + snapshot + " because: " + why);
+    String msg = "Stopping clone snapshot=" + snapshot + " because: " + why;
+    LOG.info(msg);
+    status.abort(msg);
     this.monitor.receive(new ForeignException(NAME, new CancellationException(why)));
   }
 
