@@ -59,6 +59,7 @@ import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.RecordWriter;
+import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputCommitter;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
@@ -317,7 +318,27 @@ public class HFileOutputFormat extends FileOutputFormat<ImmutableBytesWritable, 
    * The user should be sure to set the map output value class to either KeyValue or Put before
    * running this function.
    */
-  public static void configureIncrementalLoad(Job job, HTable table)
+  public static void configureIncrementalLoad(Job job, HTable table) throws IOException {
+    configureIncrementalLoad(job, table, false);
+  }
+
+  /**
+   * Configure a MapReduce Job to perform an incremental load into the given table. This
+   * <ul>
+   *   <li>Inspects the table to configure a total order partitioner</li>
+   *   <li>Uploads the partitions file to the cluster and adds it to the DistributedCache</li>
+   *   <li>Sets the number of reduce tasks to match the current number of regions</li>
+   *   <li>Sets the output key/value class to match HFileOutputFormat's requirements</li>
+   *   <li>Sets the reducer up to perform the appropriate sorting (either KeyValueSortReducer or
+   *     PutSortReducer)</li>
+   * </ul>
+   * The user should be sure to set the map output value class to either KeyValue or Put before
+   * running this function.
+   * @param withWAL if <tt>true</tt>, when writing the HFiles also write a corresponding HLog for
+   *          each HFile. These WALs can then be added to the replication queue via the the usual
+   *          bulk-load mechanisms.
+   */
+  public static void configureIncrementalLoad(Job job, HTable table, boolean withWAL)
   throws IOException {
     Configuration conf = job.getConfiguration();
 
@@ -328,10 +349,17 @@ public class HFileOutputFormat extends FileOutputFormat<ImmutableBytesWritable, 
     // Based on the configured map output class, set the correct reducer to properly
     // sort the incoming values.
     // TODO it would be nice to pick one or the other of these formats.
+    @SuppressWarnings("rawtypes")
+    Class<? extends Reducer> reducerClass = null;
     if (KeyValue.class.equals(job.getMapOutputValueClass())) {
-      job.setReducerClass(KeyValueSortReducer.class);
+      reducerClass =
+          withWAL ? BulkLoadUtils.KeyValueWithWALSortReducer.class
+              : KeyValueSortReducer.class;
     } else if (Put.class.equals(job.getMapOutputValueClass())) {
-      job.setReducerClass(PutSortReducer.class);
+      reducerClass = withWAL ? BulkLoadUtils.PutWithWALSortReducer.class : PutSortReducer.class;
+    }
+    if (reducerClass != null) {
+      job.setReducerClass(reducerClass);
     } else {
       LOG.warn("Unknown map output value type:" + job.getMapOutputValueClass());
     }

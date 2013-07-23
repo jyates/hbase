@@ -161,7 +161,7 @@ public class TestHFileOutputFormat  {
     }
   }
 
-  private void setupRandomGeneratorMapper(Job job) {
+  static void setupRandomGeneratorMapper(Job job) {
     job.setInputFormatClass(NMapInputFormat.class);
     job.setMapperClass(RandomKVGeneratingMapper.class);
     job.setMapOutputKeyClass(ImmutableBytesWritable.class);
@@ -337,7 +337,7 @@ public class TestHFileOutputFormat  {
     assertEquals(job.getNumReduceTasks(), 4);
   }
 
-  private byte [][] generateRandomStartKeys(int numKeys) {
+  static byte[][] generateRandomStartKeys(int numKeys) {
     Random random = new Random();
     byte[][] ret = new byte[numKeys][];
     // first region start key is always empty
@@ -453,9 +453,7 @@ public class TestHFileOutputFormat  {
     }
   }
 
-  private void runIncrementalPELoad(
-      Configuration conf, HTable table, Path outDir)
-  throws Exception {
+  private void runIncrementalPELoad(Configuration conf, HTable table, Path outDir) throws Exception {
     Job job = new Job(conf, "testLocalMRIncrementalLoad");
     job.setWorkingDirectory(util.getDataTestDirOnTestFS("runIncrementalPELoad"));
     job.getConfiguration().setStrings("io.serializations", conf.get("io.serializations"),

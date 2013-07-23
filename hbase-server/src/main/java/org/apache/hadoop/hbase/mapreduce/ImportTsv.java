@@ -304,6 +304,7 @@ public class ImportTsv extends Configured implements Tool {
       job.setMapOutputValueClass(Put.class);
       job.setCombinerClass(PutCombiner.class);
       HFileOutputFormat.configureIncrementalLoad(job, table);
+      WALOutputFormat.updateJobIfEnabled(job, table);
     } else {
       // No reducers. Just write straight to table. Call initTableReducerJob
       // to set up the TableOutputFormat.
@@ -376,6 +377,7 @@ public class ImportTsv extends Configured implements Tool {
       "For performance consider the following options:\n" +
       "  -Dmapred.map.tasks.speculative.execution=false\n" +
       "  -Dmapred.reduce.tasks.speculative.execution=false";
+    WALOutputFormat.writeHelp();
 
     System.err.println(usage);
   }

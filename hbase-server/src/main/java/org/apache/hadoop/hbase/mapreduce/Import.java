@@ -371,9 +371,10 @@ public class Import {
    * @param args The command line parameters.
    * @return The newly created job.
    * @throws IOException When setting up the job fails.
+   * @throws ClassNotFoundException when setting up the job fails
    */
-  public static Job createSubmittableJob(Configuration conf, String[] args)
-  throws IOException {
+  public static Job createSubmittableJob(Configuration conf, String[] args) throws IOException,
+      ClassNotFoundException {
     String tableName = args[0];
     Path inputDir = new Path(args[1]);
     Job job = new Job(conf, NAME + "_" + tableName);
@@ -401,6 +402,7 @@ public class Import {
       job.setMapOutputKeyClass(ImmutableBytesWritable.class);
       job.setMapOutputValueClass(KeyValue.class);
       HFileOutputFormat.configureIncrementalLoad(job, table);
+      WALOutputFormat.updateJobIfEnabled(job, table);
       TableMapReduceUtil.addDependencyJars(job.getConfiguration(),
           com.google.common.base.Preconditions.class);
     } else {
@@ -424,6 +426,7 @@ public class Import {
     System.err.println("By default Import will load data directly into HBase. To instead generate");
     System.err.println("HFiles of data to prepare for a bulk data load, pass the option:");
     System.err.println("  -D" + BULK_OUTPUT_CONF_KEY + "=/path/for/output");
+    WALOutputFormat.writeHelp();
     System.err
         .println(" To apply a generic org.apache.hadoop.hbase.filter.Filter to the input, use");
     System.err.println("  -D" + FILTER_CLASS_CONF_KEY + "=<name of filter class>");

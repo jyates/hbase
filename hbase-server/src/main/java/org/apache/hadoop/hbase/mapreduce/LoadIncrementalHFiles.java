@@ -106,6 +106,8 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
   private boolean useSecure;
   private Token<?> userToken;
   private String bulkToken;
+  /** Directory where WALs to load are stored. */
+  private Path walDir;
 
   //package private for testing
   LoadIncrementalHFiles(Configuration conf, Boolean useSecure) throws Exception {
@@ -173,9 +175,14 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
         continue;
       }
       Path familyDir = stat.getPath();
+      String dir = familyDir.getName();
+      if (dir.equals(WALOutputFormat.WAL_OUTPUT_DIR_NAME)) {
+        this.walDir = familyDir;
+        continue;
+      }
       // Skip _logs, etc
-      if (familyDir.getName().startsWith("_")) continue;
-      byte[] family = familyDir.getName().getBytes();
+      if (dir.startsWith("_")) continue;
+      byte[] family = dir.getBytes();
       Path[] hfiles = FileUtil.stat2Paths(fs.listStatus(familyDir));
       for (Path hfile : hfiles) {
         if (hfile.getName().startsWith("_")) continue;

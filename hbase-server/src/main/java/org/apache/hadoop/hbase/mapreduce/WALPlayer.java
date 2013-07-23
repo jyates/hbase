@@ -207,8 +207,7 @@ public class WALPlayer extends Configured implements Tool {
    * @return The newly created job.
    * @throws IOException When setting up the job fails.
    */
-  public Job createSubmittableJob(String[] args)
-  throws IOException {
+  public Job createSubmittableJob(String[] args) throws IOException, ClassNotFoundException {
     Configuration conf = getConf();
     setupTime(conf, HLogInputFormat.START_TIME_KEY);
     setupTime(conf, HLogInputFormat.END_TIME_KEY);
@@ -244,6 +243,7 @@ public class WALPlayer extends Configured implements Tool {
       FileOutputFormat.setOutputPath(job, outputDir);
       job.setMapOutputValueClass(KeyValue.class);
       HFileOutputFormat.configureIncrementalLoad(job, table);
+      WALOutputFormat.updateJobIfEnabled(job, table);
       TableMapReduceUtil.addDependencyJars(job.getConfiguration(),
           com.google.common.base.Preconditions.class);
     } else {
@@ -276,6 +276,7 @@ public class WALPlayer extends Configured implements Tool {
     System.err.println("To generate HFiles for a bulk data load instead, pass the option:");
     System.err.println("  -D" + BULK_OUTPUT_CONF_KEY + "=/path/for/output");
     System.err.println("  (Only one table can be specified, and no mapping is allowed!)");
+    WALOutputFormat.writeHelp();
     System.err.println("Other options: (specify time range to WAL edit to consider)");
     System.err.println("  -D" + HLogInputFormat.START_TIME_KEY + "=[date|ms]");
     System.err.println("  -D" + HLogInputFormat.END_TIME_KEY + "=[date|ms]");
