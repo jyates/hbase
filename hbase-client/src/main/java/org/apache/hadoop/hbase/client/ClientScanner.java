@@ -83,6 +83,7 @@ public class ClientScanner extends AbstractClientScanner {
       this(conf, scan, tableName, HConnectionManager.getConnection(conf));
     }
 
+
     /**
      * Create a new ClientScanner for the specified table
      * Note that the passed {@link Scan}'s start row maybe changed changed.
@@ -93,8 +94,22 @@ public class ClientScanner extends AbstractClientScanner {
      * @param connection Connection identifying the cluster
      * @throws IOException
      */
-    public ClientScanner(final Configuration conf, final Scan scan,
-      final byte[] tableName, HConnection connection) throws IOException {
+  public ClientScanner(final Configuration conf, final Scan scan, final byte[] tableName,
+      HConnection connection) throws IOException {
+    this(conf, scan, tableName, connection, new CallableFactory(connection, tableName));
+  }
+
+  /**
+   * Create a new ClientScanner for the specified table Note that the passed {@link Scan}'s start
+   * row maybe changed changed.
+   * @param conf The {@link Configuration} to use.
+   * @param scan {@link Scan} to use in this scanner
+   * @param tableName The table that we wish to scan
+   * @param connection Connection identifying the cluster
+   * @throws IOException
+   */
+  public ClientScanner(final Configuration conf, final Scan scan, final byte[] tableName,
+      HConnection connection, CallableFactory callableFactory) throws IOException {
       if (LOG.isTraceEnabled()) {
         LOG.trace("Scan table=" + Bytes.toString(tableName)
             + ", startRow=" + Bytes.toStringBinary(scan.getStartRow()));
@@ -130,6 +145,8 @@ public class ClientScanner extends AbstractClientScanner {
             HConstants.HBASE_CLIENT_SCANNER_CACHING,
             HConstants.DEFAULT_HBASE_CLIENT_SCANNER_CACHING);
       }
+
+      this.callableFactory = callableFactory;
 
       // initialize the scanner
       nextScanner(false);
@@ -229,10 +246,9 @@ public class ClientScanner extends AbstractClientScanner {
       return true;
     }
 
-    protected ScannerCallable getScannerCallable(byte [] localStartKey) {
+    protected ScannerCallable getScannerCallable(byte [] localStartKey) throws IOException {
       scan.setStartRow(localStartKey);
-      ScannerCallable s = new ScannerCallable(getConnection(),
-        getTableName(), scan, this.scanMetrics);
+      ScannerCallable s = this.callableFactory.newScannerCallable(scan, this.scanMetrics);
       s.setCaching(this.caching);
       return s;
     }

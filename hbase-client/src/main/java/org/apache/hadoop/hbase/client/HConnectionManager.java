@@ -2100,7 +2100,8 @@ public class HConnectionManager {
     // For tests.
     protected <R> AsyncProcess createAsyncProcess(byte[] tableName, ExecutorService pool,
            AsyncProcess.AsyncProcessCallback<R> callback, Configuration conf) {
-      return new AsyncProcess<R>(this, tableName, pool, callback, conf);
+      return new AsyncProcess<R>(this, tableName, pool, callback, conf, new CallableFactory(this,
+          tableName));
     }
 
 

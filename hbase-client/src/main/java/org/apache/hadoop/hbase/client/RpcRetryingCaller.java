@@ -62,8 +62,15 @@ public class RpcRetryingCaller<T> {
   private long startTime, endTime;
   private final static int MIN_RPC_TIMEOUT = 2000;
 
-  public RpcRetryingCaller() {
+  private final long pause;
+  private final int retries;
+
+  public RpcRetryingCaller(Configuration conf) {
     super();
+    this.pause = conf.getLong(HConstants.HBASE_CLIENT_PAUSE, HConstants.DEFAULT_HBASE_CLIENT_PAUSE);
+    this.retries =
+        conf.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,
+          HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
   }
 
   private void beforeCall() {
@@ -83,19 +90,9 @@ public class RpcRetryingCaller<T> {
     this.endTime = EnvironmentEdgeManager.currentTimeMillis();
   }
 
-  public synchronized T callWithRetries(RetryingCallable<T> callable, final Configuration conf)
-  throws IOException, RuntimeException {
-    return callWithRetries(callable, conf, HConstants.DEFAULT_HBASE_CLIENT_OPERATION_TIMEOUT);
-  }
-
-  public synchronized T callWithRetries(RetryingCallable<T> callable, final Configuration conf,
-      final int callTimeout)
-  throws IOException, RuntimeException {
-    final long pause = conf.getLong(HConstants.HBASE_CLIENT_PAUSE,
-      HConstants.DEFAULT_HBASE_CLIENT_PAUSE);
-    final int numRetries = conf.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,
-      HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
-    return callWithRetries(callable, callTimeout, pause, numRetries);
+  public synchronized T callWithRetries(RetryingCallable<T> callable) throws IOException,
+      RuntimeException {
+    return callWithRetries(callable, HConstants.DEFAULT_HBASE_CLIENT_OPERATION_TIMEOUT);
   }
 
   /**
@@ -107,8 +104,7 @@ public class RpcRetryingCaller<T> {
    * @throws IOException if a remote or network exception occurs
    * @throws RuntimeException other unspecified error
    */
-  synchronized T callWithRetries(RetryingCallable<T> callable, int callTimeout, final long pause,
-      final int retries)
+  public synchronized T callWithRetries(RetryingCallable<T> callable, int callTimeout)
   throws IOException, RuntimeException {
     this.callTimeout = callTimeout;
     List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions =

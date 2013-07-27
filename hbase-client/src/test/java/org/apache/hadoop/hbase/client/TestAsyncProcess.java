@@ -67,13 +67,13 @@ public class TestAsyncProcess {
     public MyAsyncProcess(HConnection hc, AsyncProcessCallback<Res> callback, Configuration conf) {
       super(hc, DUMMY_TABLE, new ThreadPoolExecutor(1, 10, 60, TimeUnit.SECONDS,
         new SynchronousQueue<Runnable>(), Threads.newDaemonThreadFactory("test-TestAsyncProcess")),
-        callback, conf);
+          callback, conf, new RpcRetryingCallerFactory(conf));
     }
 
     @Override
     protected RpcRetryingCaller<MultiResponse> createCaller(MultiServerCallable<Row> callable) {
       final MultiResponse mr = createMultiResponse(callable.getLocation(), callable.getMulti());
-      return new RpcRetryingCaller<MultiResponse>() {
+      return new RpcRetryingCaller<MultiResponse>(super.hConnection.getConfiguration()) {
         @Override
         public MultiResponse callWithoutRetries( RetryingCallable<MultiResponse> callable)
         throws IOException, RuntimeException {
