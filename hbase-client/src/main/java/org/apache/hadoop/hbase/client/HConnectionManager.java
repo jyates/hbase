@@ -70,7 +70,6 @@ import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.AdminService;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.ClientService;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.CoprocessorServiceRequest;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.CoprocessorServiceResponse;
-import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.TableSchema;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AddColumnRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AddColumnResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AssignRegionRequest;
@@ -2100,8 +2099,8 @@ public class HConnectionManager {
     // For tests.
     protected <R> AsyncProcess createAsyncProcess(byte[] tableName, ExecutorService pool,
            AsyncProcess.AsyncProcessCallback<R> callback, Configuration conf) {
-      return new AsyncProcess<R>(this, tableName, pool, callback, conf, new CallableFactory(this,
-          tableName));
+      return new AsyncProcess<R>(this, tableName, pool, callback, conf,
+          RpcRetryingCallerFactory.instantiate(conf));
     }
 
 

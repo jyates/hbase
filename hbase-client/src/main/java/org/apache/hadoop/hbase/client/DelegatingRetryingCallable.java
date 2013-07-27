@@ -2,10 +2,11 @@ package org.apache.hadoop.hbase.client;
 
 import java.io.IOException;
 
-public class DelegatingRetryingCallable<T> implements RetryingCallable<T> {
-  protected final RetryingCallable<T> delegate;
+public class DelegatingRetryingCallable<T, D extends RetryingCallable<T>> implements
+    RetryingCallable<T> {
+  protected final D delegate;
 
-  public DelegatingRetryingCallable(RetryingCallable<T> delegate) {
+  public DelegatingRetryingCallable(D delegate) {
     this.delegate = delegate;
   }
 
