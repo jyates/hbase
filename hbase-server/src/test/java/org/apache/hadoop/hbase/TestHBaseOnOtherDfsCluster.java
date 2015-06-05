@@ -12,6 +12,8 @@ import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.mockito.Mock;
+import org.mockito.Mockito;
 
 import java.util.UUID;
 
@@ -25,15 +27,20 @@ import static org.junit.Assert.assertTrue;
 public class TestHBaseOnOtherDfsCluster {
 
   @Test
-  public void testOveralyOnOtherCluster() throws Exception {
+  public void testOverlayOnOtherCluster() throws Exception {
     // just run HDFS
     HBaseTestingUtility util1 = new HBaseTestingUtility();
     MiniDFSCluster dfs = util1.startMiniDFSCluster(1);
 
+    // wrap the cluster as a dfs cluster (mocking a real cluster)
+    MiniDFSCluster wrapped = Mockito.mock(MiniDFSCluster.class);
+    Mockito.when(wrapped.isClusterUp()).thenReturn(true);
+    Mockito.when(wrapped.getFileSystem()).thenReturn(dfs.getFileSystem());
+
     // run HBase on that HDFS
     HBaseTestingUtility util2 = new HBaseTestingUtility();
     // set the dfs
-    util2.setDFSCluster(dfs, false);
+    util2.setDFSCluster(wrapped, false);
     util2.startMiniCluster();
 
     //ensure that they are pointed at the same place
