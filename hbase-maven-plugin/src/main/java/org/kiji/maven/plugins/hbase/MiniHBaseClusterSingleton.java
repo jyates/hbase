@@ -19,6 +19,7 @@ package org.kiji.maven.plugins.hbase;
 
 import java.io.IOException;
 
+import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.maven.plugin.logging.Log;
 
@@ -60,6 +61,15 @@ public enum MiniHBaseClusterSingleton {
       }
     }
     log.info("Finished waiting for HBase cluster thread.");
+  }
+
+  /**
+   * Wait for the cluster to complete
+   * @throws InterruptedException
+   */
+  public void waitUntilDone() throws InterruptedException {
+    Preconditions.checkState(mThread.isClusterReady(), "Cannot wait until done until cluster is already up! Did you start it already? Did it already stop?");
+    mThread.join();
   }
 
   /**
