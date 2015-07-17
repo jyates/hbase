@@ -54,7 +54,6 @@
 
     <hadoop.version>2.5.1</hadoop.version>
     <slf4j.version>1.6.1</slf4j.version>
-    <netty.version>3.6.2.Final</netty.version>
 
     <maven-artifact.version>2.2.1</maven-artifact.version>
     <maven-plugin-api.version>2.0</maven-plugin-api.version>
@@ -204,11 +203,11 @@
       <type>test-jar</type>
       <scope>compile</scope>
     </dependency>
-    <!-- Hadoop needs Netty 3.x at test scope for the minicluster -->
+    <!-- Hadoop needs Netty 3.x in scope for the minicluster -->
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty</artifactId>
-      <version>${netty.version}</version>
+      <version>${netty.hadoop.version}</version>
     </dependency>
 
     <dependency>
