@@ -2654,7 +2654,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    * @param servers  The number of <code>TaskTracker</code>'s to start.
    * @throws IOException When starting the cluster fails.
    */
-  private void startMiniMapReduceCluster(final int servers) throws IOException {
+  public void startMiniMapReduceCluster(final int servers) throws IOException {
     if (mrCluster != null) {
       throw new IllegalStateException("MiniMRCluster is already running");
     }
