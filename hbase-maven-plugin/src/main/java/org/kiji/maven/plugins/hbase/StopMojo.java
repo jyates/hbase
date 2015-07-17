@@ -52,7 +52,7 @@ public class StopMojo extends AbstractMojo {
    * .dir) will be cleared before the cluster is started, then copied to the project's build
    * directory before the cluster is shutdown.
    *
-   * @parameter property="saveHadoopTmpDir" expression="${save.hadoop.tmp}" default-value="false"
+   * @parameter property="save.hadoop.tmp" default-value="false"
    * @required
    */
   private boolean mSaveHadoopTmpDir;
