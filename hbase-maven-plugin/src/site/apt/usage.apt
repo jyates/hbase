@@ -1,0 +1,164 @@
+Usage
+
+  This plugin is useful for integration testing code that interacts with
+  an HBase cluster.  Typically, you will bind the `start` goal to your
+  `pre-integration-test` phase and the `stop` goal to the
+  `post-integration-test` phase of the maven build lifecycle.
+
+
+* Referencing the maven repository hosted by WibiData
+
+  Built artifacts are hosted on WibiData's maven repository, so you don't need
+  to download the source and install the plugin manually. To tell maven about
+  the repository from which to download this plugin, add the following to your
+  ~/.m2/settings.xml or your project's pom.xml:
+
++---
+    <pluginRepositories>
+      <pluginRepository>
+        <id>kiji-plugins</id>
+        <name>kiji-plugins</name>
+        <url>https://repo.wibidata.com/artifactory/kiji</url>
+      </pluginRepository>
+    </pluginRepositories>
++---
+
+
+* Start HBase during the integration-test phase
+
+  To bind the goals to their default phases (pre- and post-integration-test), add
+  the following to the build plugins section of your pom.xml file:
+
++---
+    <build>
+      <plugins>
+        <!-- ... -->
+        <plugin>
+          <groupId>org.kiji.maven.plugins</groupId>
+          <artifactId>hbase-maven-plugin</artifactId>
+          <version>${version}</version>
+          <executions>
+            <execution>
+              <goals>
+                <goal>start</goal>
+                <goal>stop</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <!-- ... -->
+      </plugins>
+    </build>
++---
+
+
+* Start a MapReduce cluster during the integration-test phase
+
+  You may also require a mini MapReduce cluster to be started alongside your HBase
+  cluster.  To configure the plugin to do so, set mapReduceEnabled to true in your
+  configuration:
+
++---
+    <plugin>
+      <groupId>org.kiji.maven.plugins</groupId>
+      <artifactId>hbase-maven-plugin</artifactId>
+      <version>${version}</version>
+      <configuration>
+        <mapReduceEnabled>true</mapReduceEnabled>
+      </configuration>
+      <!-- ... -->
+    </plugin>
++---
+
+
+* Hadoop configuration for your cluster
+
+  You might want to specify additional server-side Hadoop configuration for the
+  cluster.  You may use the <hadoopConfiguration> properties to set them.  For
+  example, to increase the number of map and reduce task slots:
+
++---
+    <plugin>
+      <groupId>org.kiji.maven.plugins</groupId>
+      <artifactId>hbase-maven-plugin</artifactId>
+      <version>${version}</version>
+      <configuration>
+        <hadoopConfiguration>
+          <property>
+            <name>mapred.tasktracker.map.tasks.maximum</name>
+            <value>16</value>
+          </property>
+          <property>
+            <name>mapred.tasktracker.reduce.tasks.maximum</name>
+            <value>8</value>
+          </property>
+        </hadoopConfiguration>
+        <mapReduceEnabled>true</mapReduceEnabled>
+      </configuration>
+      <!-- ... -->
+    </plugin>
++---
+
+
+* Using the mini cluster from your Java tests
+
+  The `start` goal will write an XML configuration file named
+  `hbase-site.xml` to your `target/test-classes` directory, which
+  appears on the classpath when your tests are run.  Hence, an
+  `org.apache.hadoop.conf.Configuration` object created via
+  `HBaseConfiguration.create()` will load the HBase cluster
+  configuration automatically.
+
++---
+    Configuration conf = HBaseConfiguration.create();
+    HTable mytable = new HTable(conf, "mytable");
+    // Operate on mytable as usual...
++---
+
+
+* Logging
+
+  By default, the plugin and the clusters it starts write their logs to
+  the following locations within your project:
+
+  * target/hbase-maven-plugin.log - The plugin log.
+
+  * target/hbase.log - The HBase log.
+
+  * target/mapred.log - The MapReduce log.
+
+* MapReduce task logs
+
+  Jobs run on the MapReduce cluster started by the plugin produce task
+  logs that may be useful for debugging but that are deleted when the 
+  cluster is shutdown. These logs are written to the location given by
+  the Hadoop configuration property `hadoop.tmp.dir`. Setting 
+  `saveHadoopTmpDir` to `true` in the plugin's configuration or setting
+  `-Dsave.hadoop.tmp=true` on the command line will clear
+  the directory given by `hadoop.tmp.dir` before the cluster is started
+  and copy the contents of `hadoop.tmp.dir` to the directory `hadoop-tmp`
+  in your project's build directory. Task logs can be found at
+  `${project.build.directory}/hadoop-tmp/userlogs`.
+
++---
+    <plugin>
+      <groupId>org.kiji.maven.plugins</groupId>
+      <artifactId>hbase-maven-plugin</artifactId>
+      <version>${version}</version>
+      <configuration>
+        <hadoopConfiguration>
+          <property>
+            <name>mapred.tasktracker.map.tasks.maximum</name>
+            <value>16</value>
+          </property>
+          <property>
+            <name>mapred.tasktracker.reduce.tasks.maximum</name>
+            <value>8</value>
+          </property>
+        </hadoopConfiguration>
+        <mapReduceEnabled>true</mapReduceEnabled>
+        <saveHadoopTmpDir>true</saveHadoopTmpDir>
+      </configuration>
+      <!-- ... -->
+    </plugin>
++---
